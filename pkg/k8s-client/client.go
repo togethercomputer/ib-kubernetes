@@ -101,7 +101,7 @@ func (c *client) GetRestClient() rest.Interface {
 
 // UpdateNetworkAttachmentDefinition updates the network attachment definition
 func (c *client) UpdateNetworkAttachmentDefinition(netAttDef *netapi.NetworkAttachmentDefinition) error {
-	_, err := c.netClient.K8sCniCncfIoV1().NetworkAttachmentDefinitions(netAttDef.Namespace).Update(
+	_, err := c.netClient.NetworkAttachmentDefinitions(netAttDef.Namespace).Update(
 		context.Background(), netAttDef, metav1.UpdateOptions{})
 	return err
 }
