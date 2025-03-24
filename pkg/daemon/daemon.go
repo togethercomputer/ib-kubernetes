@@ -265,25 +265,17 @@ func (d *daemon) processNetworkGUID(networkID string, spec *utils.IbSriovCniSpec
 			return err
 		}
 	} else {
-		log.Warn().Msgf("GUID Not allocated for : %v, using GUID from NetworkAttachmentDefinition", networkID)
-		if spec.GUID == "" {
-			log.Warn().Msgf("No GUID found in NetworkAttachmentDefinition for network %s, generating new GUID", networkID)
-			guidAddr, err = d.guidPool.GenerateGUID()
-			if err != nil {
-				switch {
-				case errors.Is(err, guid.ErrGUIDPoolExhausted):
-					err = syncGUIDPool(d.smClient, d.guidPool)
-					if err != nil {
-						return err
-					}
-				default:
-					return fmt.Errorf("failed to generate GUID for pod ID %s, with error: %v", pi.pod.UID, err)
+		log.Warn().Msgf("Generating new GUID for network %s", networkID)
+		guidAddr, err = d.guidPool.GenerateGUID()
+		if err != nil {
+			switch {
+			case errors.Is(err, guid.ErrGUIDPoolExhausted):
+				err = syncGUIDPool(d.smClient, d.guidPool)
+				if err != nil {
+					return err
 				}
-			}
-		} else {
-			guidAddr, err = guid.ParseGUID(spec.GUID)
-			if err != nil {
-				return fmt.Errorf("failed to parse GUID from NetworkAttachmentDefinition %s with error: %v", spec.GUID, err)
+			default:
+				return fmt.Errorf("failed to generate GUID for pod ID %s, with error: %v", pi.pod.UID, err)
 			}
 		}
 
@@ -429,11 +421,49 @@ func (d *daemon) AddPeriodicUpdate() {
 
 			// Try to add pKeys via subnet manager in backoff loop
 			if err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+				if ibCniSpec.GUIDSavedInUFM == "true" {
+					log.Info().Msgf("skipping adding GUIDs to PKey as GUIDSavedInUFM is true")
+					return true, nil
+				}
+
 				if err = d.smClient.AddGuidsToPKey(pKey, guidList); err != nil {
 					log.Warn().Msgf("failed to config pKey with subnet manager %s with error : %v",
 						d.smClient.Name(), err)
 					return false, nil
 				}
+
+				// Update NetworkAttachmentDefinition to set GUIDSavedInUFM to true
+				networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
+				netAttDef, err := d.kubeClient.GetNetworkAttachmentDefinition(networkNamespace, networkName)
+				if err != nil {
+					log.Warn().Msgf("failed to get network attachment definition %s with error: %v",
+						networkName, err)
+					return false, nil
+				}
+
+				// Parse the current config
+				var netConfig map[string]interface{}
+				err = json.Unmarshal([]byte(netAttDef.Spec.Config), &netConfig)
+				if err != nil {
+					log.Warn().Msgf("failed to parse network config with error: %v", err)
+					return false, nil
+				}
+				netConfig["GUIDSavedInUFM"] = "true"
+				// Marshal back to JSON
+				updatedConfig, err := json.Marshal(netConfig)
+				if err != nil {
+					log.Warn().Msgf("failed to marshal updated config with error: %v", err)
+					return false, nil
+				}
+
+				// Update the NetworkAttachmentDefinition
+				netAttDef.Spec.Config = string(updatedConfig)
+				err = d.kubeClient.UpdateNetworkAttachmentDefinition(netAttDef)
+				if err != nil {
+					log.Warn().Msgf("failed to update network attachment definition with error: %v", err)
+					return false, nil
+				}
+
 				return true, nil
 			}); err != nil {
 				log.Error().Msgf("failed to config pKey with subnet manager %s", d.smClient.Name())
@@ -457,6 +487,11 @@ func (d *daemon) AddPeriodicUpdate() {
 
 			// Try to remove pKeys via subnet manager in backoff loop
 			if err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+				if ibCniSpec.GUIDSavedInUFM != "true" {
+					log.Info().Msgf("skipping removing GUIDs from PKey as GUIDSavedInUFM is not true")
+					return true, nil
+				}
+
 				if err = d.smClient.RemoveGuidsFromPKey(pKey, removedGUIDList); err != nil {
 					log.Warn().Msgf("failed to remove guids of removed pods from pKey %s"+
 						" with subnet manager %s with error: %v", ibCniSpec.PKey,
@@ -554,12 +589,51 @@ func (d *daemon) DeletePeriodicUpdate() {
 
 			// Try to remove pKeys via subnet manager on backoff loop
 			if err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+				if ibCniSpec.GUIDSavedInUFM != "true" {
+					log.Info().Msgf("skipping removing GUIDs from PKey as GUIDSavedInUFM is not true")
+					return true, nil
+				}
+
 				if err = d.smClient.RemoveGuidsFromPKey(pKey, guidList); err != nil {
 					log.Warn().Msgf("failed to remove guids of removed pods from pKey %s"+
 						" with subnet manager %s with error: %v", ibCniSpec.PKey,
 						d.smClient.Name(), err)
 					return false, nil
 				}
+
+				// Update NetworkAttachmentDefinition to set GUIDSavedInUFM to false
+				networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
+				netAttDef, err := d.kubeClient.GetNetworkAttachmentDefinition(networkNamespace, networkName)
+				if err != nil {
+					log.Warn().Msgf("failed to get network attachment definition %s with error: %v",
+						networkName, err)
+					return false, nil
+				}
+
+				// Parse the current config
+				var netConfig map[string]interface{}
+				err = json.Unmarshal([]byte(netAttDef.Spec.Config), &netConfig)
+				if err != nil {
+					log.Warn().Msgf("failed to parse network config with error: %v", err)
+					return false, nil
+				}
+				netConfig["GUIDSavedInUFM"] = "false"
+
+				// Marshal back to JSON
+				updatedConfig, err := json.Marshal(netConfig)
+				if err != nil {
+					log.Warn().Msgf("failed to marshal updated config with error: %v", err)
+					return false, nil
+				}
+
+				// Update the NetworkAttachmentDefinition
+				netAttDef.Spec.Config = string(updatedConfig)
+				err = d.kubeClient.UpdateNetworkAttachmentDefinition(netAttDef)
+				if err != nil {
+					log.Warn().Msgf("failed to update network attachment definition with error: %v", err)
+					return false, nil
+				}
+
 				return true, nil
 			}); err != nil {
 				log.Warn().Msgf("failed to remove guids of removed pods from pKey %s"+

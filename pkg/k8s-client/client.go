@@ -22,6 +22,7 @@ type Client interface {
 	PatchPod(pod *kapi.Pod, patchType types.PatchType, patchData []byte) error
 	GetNetworkAttachmentDefinition(namespace, name string) (*netapi.NetworkAttachmentDefinition, error)
 	GetRestClient() rest.Interface
+	UpdateNetworkAttachmentDefinition(netAttDef *netapi.NetworkAttachmentDefinition) error
 }
 
 type client struct {
@@ -96,4 +97,11 @@ func (c *client) GetNetworkAttachmentDefinition(namespace, name string) (*netapi
 // GetRestClient returns the client rest api for k8s
 func (c *client) GetRestClient() rest.Interface {
 	return c.clientset.CoreV1().RESTClient()
+}
+
+// UpdateNetworkAttachmentDefinition updates the network attachment definition
+func (c *client) UpdateNetworkAttachmentDefinition(netAttDef *netapi.NetworkAttachmentDefinition) error {
+	_, err := c.netClient.K8sCniCncfIoV1().NetworkAttachmentDefinitions(netAttDef.Namespace).Update(
+		context.Background(), netAttDef, metav1.UpdateOptions{})
+	return err
 }

@@ -12,9 +12,10 @@ import (
 )
 
 type IbSriovCniSpec struct {
-	Type         string          `json:"type"`
-	PKey         string          `json:"pkey"`
-	Capabilities map[string]bool `json:"capabilities,omitempty"`
+	Type           string          `json:"type"`
+	PKey           string          `json:"pkey"`
+	GUIDSavedInUFM string          `json:"guid_saved_in_ufm,omitempty"`
+	Capabilities   map[string]bool `json:"capabilities,omitempty"`
 }
 
 const (
