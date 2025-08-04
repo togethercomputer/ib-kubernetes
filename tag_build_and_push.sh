@@ -1,23 +1,21 @@
 #! /bin/bash
-TAG=ENG-34182
+TAG=v1.2.0
 
 set -eou pipefail
 
-# # pull all tags
-# git fetch --tags || true
+# pull all tags
+git fetch --tags || true
 
-# # check if git tags exist locally, if not, create and push, if yes - echo and skip pushing tag
-# if git rev-parse --verify --quiet "refs/tags/${TAG}" >/dev/null; then
-#   echo "Tag $TAG already exists!"
-# else
-#   git tag "$TAG"
-#   git push origin "$TAG"
+# check if git tags exist locally, if not, create and push, if yes - echo and skip pushing tag
+if git rev-parse --verify --quiet "refs/tags/${TAG}" >/dev/null; then
+  echo "Tag $TAG already exists!"
+else
+  git tag "$TAG"
+  git push origin "$TAG"
 
-#   git tag "pkg/apis/${TAG}"
-#   git push origin "pkg/apis/${TAG}"
-# fi
-
-
+  git tag "pkg/apis/${TAG}"
+  git push origin "pkg/apis/${TAG}"
+fi
 
 
 read -p "Have you logged in to aws and ecr? ([y]/n): " confirm
