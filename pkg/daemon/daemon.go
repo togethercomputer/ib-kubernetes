@@ -110,6 +110,15 @@ func NewDaemon() (Daemon, error) {
 		return nil, err
 	}
 
+	// Pass configuration from daemon to the plugin
+	pluginConfig := map[string]interface{}{
+		"ENABLE_IP_OVER_IB":         daemonConfig.EnableIPOverIB,
+		"DEFAULT_LIMITED_PARTITION": daemonConfig.DefaultLimitedPartition,
+	}
+	if err := smClient.SetConfig(pluginConfig); err != nil {
+		log.Warn().Msgf("Failed to set configuration on subnet manager plugin: %v", err)
+	}
+
 	// Try to validate if subnet manager is reachable in backoff loop
 	var validateErr error
 	if err := wait.ExponentialBackoff(backoffValues, func() (bool, error) {
@@ -793,7 +802,7 @@ func (d *daemon) checkIfAnyPodsUsingNetwork(networkNamespace, networkName string
 
 	for i := range pods.Items {
 		pod := &pods.Items[i]
-		
+
 		// Skip pods that are being deleted (have deletion timestamp)
 		if pod.DeletionTimestamp != nil {
 			continue
@@ -813,7 +822,7 @@ func (d *daemon) checkIfAnyPodsUsingNetwork(networkNamespace, networkName string
 			if network.Namespace == networkNamespace && network.Name == networkName {
 				// Check if this network is configured with InfiniBand and has a GUID
 				if utils.IsPodNetworkConfiguredWithInfiniBand(network) && utils.PodNetworkHasGUID(network) {
-					log.Debug().Msgf("Found pod %s/%s still using network %s/%s", 
+					log.Debug().Msgf("Found pod %s/%s still using network %s/%s",
 						pod.Namespace, pod.Name, networkNamespace, networkName)
 					return true, nil
 				}

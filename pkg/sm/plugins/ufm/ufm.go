@@ -29,14 +29,14 @@ const (
 )
 
 type UFMConfig struct {
-	Username                string `env:"UFM_USERNAME"`                // Username of ufm
-	Password                string `env:"UFM_PASSWORD"`                // Password of ufm
-	Address                 string `env:"UFM_ADDRESS"`                 // IP address or hostname of ufm server
-	Port                    int    `env:"UFM_PORT"`                    // REST API port of ufm
-	HTTPSchema              string `env:"UFM_HTTP_SCHEMA"`             // http or https
-	Certificate             string `env:"UFM_CERTIFICATE"`             // Certificate of ufm
+	Username                string `env:"UFM_USERNAME"`                         // Username of ufm
+	Password                string `env:"UFM_PASSWORD"`                         // Password of ufm
+	Address                 string `env:"UFM_ADDRESS"`                          // IP address or hostname of ufm server
+	Port                    int    `env:"UFM_PORT"`                             // REST API port of ufm
+	HTTPSchema              string `env:"UFM_HTTP_SCHEMA"`                      // http or https
+	Certificate             string `env:"UFM_CERTIFICATE"`                      // Certificate of ufm
 	EnableIPOverIB          bool   `env:"ENABLE_IP_OVER_IB" envDefault:"false"` // Enable IP over IB functionality
-	DefaultLimitedPartition string `env:"DEFAULT_LIMITED_PARTITION"`   // Default partition key for limited membership
+	DefaultLimitedPartition string `env:"DEFAULT_LIMITED_PARTITION"`            // Default partition key for limited membership
 }
 
 func newUfmPlugin() (*ufmPlugin, error) {
@@ -44,6 +44,10 @@ func newUfmPlugin() (*ufmPlugin, error) {
 	if err := env.Parse(&ufmConf); err != nil {
 		return nil, err
 	}
+
+	// Debug logging for environment variable parsing
+	log.Info().Msgf("UFM plugin: Environment variable ENABLE_IP_OVER_IB parsed as: %t", ufmConf.EnableIPOverIB)
+	log.Info().Msgf("UFM plugin: Environment variable DEFAULT_LIMITED_PARTITION parsed as: '%s'", ufmConf.DefaultLimitedPartition)
 
 	if ufmConf.Username == "" || ufmConf.Password == "" || ufmConf.Address == "" {
 		return nil, fmt.Errorf("missing one or more required fileds for ufm [\"username\", \"password\", \"address\"]")
@@ -257,6 +261,29 @@ func (u *ufmPlugin) createEmptyPKey(pKey int) error {
 
 func (u *ufmPlugin) buildURL(path string) string {
 	return fmt.Sprintf("%s://%s:%d%s", u.conf.HTTPSchema, u.conf.Address, u.conf.Port, path)
+}
+
+// SetConfig allows the daemon to pass configuration to the plugin
+func (u *ufmPlugin) SetConfig(config map[string]interface{}) error {
+	if enableIPOverIB, exists := config["ENABLE_IP_OVER_IB"]; exists {
+		if boolVal, ok := enableIPOverIB.(bool); ok {
+			u.conf.EnableIPOverIB = boolVal
+			log.Info().Msgf("UFM plugin: EnableIPOverIB set to %t via SetConfig", boolVal)
+		} else if strVal, ok := enableIPOverIB.(string); ok {
+			// Handle string values like "true", "false"
+			u.conf.EnableIPOverIB = strVal == "true"
+			log.Info().Msgf("UFM plugin: EnableIPOverIB set to %t via SetConfig (from string %s)", u.conf.EnableIPOverIB, strVal)
+		}
+	}
+
+	if defaultLimitedPartition, exists := config["DEFAULT_LIMITED_PARTITION"]; exists {
+		if strVal, ok := defaultLimitedPartition.(string); ok {
+			u.conf.DefaultLimitedPartition = strVal
+			log.Info().Msgf("UFM plugin: DefaultLimitedPartition set to %s via SetConfig", strVal)
+		}
+	}
+
+	return nil
 }
 
 // Initialize applies configs to plugin and return a subnet manager client

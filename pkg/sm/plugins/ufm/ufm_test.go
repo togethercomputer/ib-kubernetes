@@ -258,8 +258,20 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 			plugin, err := newUfmPlugin()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plugin).ToNot(BeNil())
-			Expect(plugin.conf.EnableIPOverIB).To(BeFalse()) // Default should be false
+			Expect(plugin.conf.EnableIPOverIB).To(BeFalse())          // Default should be false
 			Expect(plugin.conf.DefaultLimitedPartition).To(Equal("")) // Default should be empty
+		})
+		It("newUfmPlugin with explicit false EnableIPOverIB config", func() {
+			Expect(os.Setenv("UFM_USERNAME", "admin")).ToNot(HaveOccurred())
+			Expect(os.Setenv("UFM_PASSWORD", "123456")).ToNot(HaveOccurred())
+			Expect(os.Setenv("UFM_ADDRESS", "1.1.1.1")).ToNot(HaveOccurred())
+			Expect(os.Setenv("UFM_HTTP_SCHEMA", "http")).ToNot(HaveOccurred())
+			Expect(os.Setenv("ENABLE_IP_OVER_IB", "false")).ToNot(HaveOccurred())
+			plugin, err := newUfmPlugin()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plugin).ToNot(BeNil())
+			Expect(plugin.conf.EnableIPOverIB).To(BeFalse())
+			Expect(plugin.conf.DefaultLimitedPartition).To(Equal(""))
 		})
 	})
 	Context("ListGuidsInUse", func() {
