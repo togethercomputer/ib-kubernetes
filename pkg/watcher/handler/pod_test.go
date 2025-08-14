@@ -139,8 +139,11 @@ var _ = Describe("Pod Event Handler", func() {
 			podEventHandler.OnDelete(pod2)
 
 			_, delMap := podEventHandler.GetResults()
-			Expect(len(delMap.Items)).To(Equal(1))
-			Expect(len(delMap.Items["default_test"].([]*kapi.Pod))).To(Equal(2))
+			// With the new GUID-specific deletion keys, each pod with a different GUID gets its own key
+			// This prevents race conditions when pods are quickly deleted and recreated
+			Expect(len(delMap.Items)).To(Equal(2))
+			Expect(len(delMap.Items["default_test_02:00:00:00:02:00:00:00"].([]*kapi.Pod))).To(Equal(1))
+			Expect(len(delMap.Items["default_test_02:00:00:00:02:00:00:01"].([]*kapi.Pod))).To(Equal(1))
 		})
 		It("On delete pod invalid cases", func() {
 			// No network needed

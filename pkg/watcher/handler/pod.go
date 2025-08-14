@@ -152,14 +152,22 @@ func (p *podEventHandler) OnDelete(obj interface{}) {
 			continue
 		}
 
-		networkID := utils.GenerateNetworkID(network)
-		pods, ok := p.deletedPods.Get(networkID)
+		// Get the GUID for this specific pod-network combination
+		guid, err := utils.GetPodNetworkGUID(network)
+		if err != nil {
+			log.Error().Msgf("failed to get GUID for pod %s network %s: %v", pod.Name, network.Name, err)
+			continue
+		}
+
+		// Use a more specific key that includes both network and GUID to prevent race conditions
+		deletionKey := fmt.Sprintf("%s_%s", utils.GenerateNetworkID(network), guid)
+		pods, ok := p.deletedPods.Get(deletionKey)
 		if !ok {
 			pods = []*kapi.Pod{pod}
 		} else {
 			pods = append(pods.([]*kapi.Pod), pod)
 		}
-		p.deletedPods.Set(networkID, pods)
+		p.deletedPods.Set(deletionKey, pods)
 	}
 
 	log.Info().Msgf("successfully deleted namespace %s name %s", pod.Namespace, pod.Name)
@@ -207,14 +215,22 @@ func (p *podEventHandler) handleTerminatingPod(pod *kapi.Pod) {
 			continue
 		}
 
-		networkID := utils.GenerateNetworkID(network)
-		pods, ok := p.deletedPods.Get(networkID)
+		// Get the GUID for this specific pod-network combination
+		guid, err := utils.GetPodNetworkGUID(network)
+		if err != nil {
+			log.Error().Msgf("failed to get GUID for terminating pod %s network %s: %v", pod.Name, network.Name, err)
+			continue
+		}
+
+		// Use a more specific key that includes both network and GUID to prevent race conditions
+		deletionKey := fmt.Sprintf("%s_%s", utils.GenerateNetworkID(network), guid)
+		pods, ok := p.deletedPods.Get(deletionKey)
 		if !ok {
 			pods = []*kapi.Pod{pod}
 		} else {
 			pods = append(pods.([]*kapi.Pod), pod)
 		}
-		p.deletedPods.Set(networkID, pods)
+		p.deletedPods.Set(deletionKey, pods)
 	}
 
 	log.Info().Msgf("successfully handled terminating pod namespace %s name %s", pod.Namespace, pod.Name)

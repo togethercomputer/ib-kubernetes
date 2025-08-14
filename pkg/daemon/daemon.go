@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"strings"
 	"syscall"
 	"time"
 
@@ -596,8 +597,8 @@ func (d *daemon) DeletePeriodicUpdate() {
 	_, deleteMap := d.watcher.GetHandler().GetResults()
 	deleteMap.Lock()
 	defer deleteMap.Unlock()
-	for networkID, podsInterface := range deleteMap.Items {
-		log.Info().Msgf("processing network networkID %s", networkID)
+	for deletionKey, podsInterface := range deleteMap.Items {
+		log.Info().Msgf("processing deletion key %s", deletionKey)
 		pods, ok := podsInterface.([]*kapi.Pod)
 		if !ok {
 			log.Error().Msgf("invalid value for add map networks expected pods array \"[]*kubernetes.Pod\", found %T",
@@ -609,9 +610,23 @@ func (d *daemon) DeletePeriodicUpdate() {
 			continue
 		}
 
+		// Parse the deletion key to extract networkID and GUID
+		// Format: networkID_GUID (e.g., "namespace_networkname_guid")
+		parts := strings.Split(deletionKey, "_")
+		if len(parts) < 3 {
+			log.Error().Msgf("invalid deletion key format %s, expected networkID_GUID", deletionKey)
+			continue
+		}
+
+		// Reconstruct networkID from parts (everything except the last part which is the GUID)
+		networkID := strings.Join(parts[:len(parts)-1], "_")
+		guid := parts[len(parts)-1]
+
+		log.Info().Msgf("extracted networkID: %s, GUID: %s from deletion key: %s", networkID, guid, deletionKey)
+
 		networkName, ibCniSpec, err := d.getIbSriovNetwork(networkID)
 		if err != nil {
-			deleteMap.UnSafeRemove(networkID)
+			deleteMap.UnSafeRemove(deletionKey)
 			log.Warn().Msgf("droping network: %v", err)
 			continue
 		}
@@ -729,7 +744,7 @@ func (d *daemon) DeletePeriodicUpdate() {
 				}
 			}
 		}
-		deleteMap.UnSafeRemove(networkID)
+		deleteMap.UnSafeRemove(deletionKey)
 	}
 
 	log.Info().Msg("delete periodic update finished")
