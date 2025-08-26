@@ -252,7 +252,7 @@ func (u *ufmPlugin) createEmptyPKey(pKey int) error {
 		`{"pkey": "0x%04X", "index0": true, "ip_over_ib": %t, "mtu_limit": 4, "service_level": 0, "rate_limit": 300, "guids": [], "membership": "full"}`,
 		pKey, u.conf.EnableIPOverIB))
 
-	if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys"), http.StatusOK, data); err != nil {
+	if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys/add"), http.StatusOK, data); err != nil {
 		return fmt.Errorf("failed to create empty PKey 0x%04X: %v", pKey, err)
 	}
 
