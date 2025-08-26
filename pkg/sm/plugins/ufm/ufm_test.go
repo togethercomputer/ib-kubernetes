@@ -89,6 +89,23 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 			err = plugin.AddGuidsToPKey(0x1234, []net.HardwareAddr{guid})
 			Expect(err).ToNot(HaveOccurred())
 		})
+		It("Add guid to valid pkey with index0 true", func() {
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(`{"pkey": "0x1234"}`), nil)
+			client.On("Post", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			guid, err := net.ParseMAC("11:22:33:44:55:66:77:88")
+			Expect(err).ToNot(HaveOccurred())
+
+			err = plugin.AddGuidsToPKey(0x1234, []net.HardwareAddr{guid})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify the Post call was made with index0: true
+			client.AssertCalled(GinkgoT(), "Post", mock.Anything, mock.Anything, mock.MatchedBy(func(data []byte) bool {
+				return string(data) == `{"pkey": "0x1234", "guids": ["1122334455667788"], "membership": "full", "index0": true}`
+			}))
+		})
 		It("Add guid to invalid pkey", func() {
 			plugin := &ufmPlugin{conf: UFMConfig{}}
 			guid, err := net.ParseMAC("11:22:33:44:55:66:77:88")
@@ -166,6 +183,23 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 
 			err = plugin.AddGuidsToLimitedPKey(0x1234, []net.HardwareAddr{guid})
 			Expect(err).ToNot(HaveOccurred())
+		})
+		It("Add guid to valid limited pkey with index0 false", func() {
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(`{"pkey": "0x1234"}`), nil)
+			client.On("Post", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			guid, err := net.ParseMAC("11:22:33:44:55:66:77:88")
+			Expect(err).ToNot(HaveOccurred())
+
+			err = plugin.AddGuidsToLimitedPKey(0x1234, []net.HardwareAddr{guid})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify the Post call was made with index0: false
+			client.AssertCalled(GinkgoT(), "Post", mock.Anything, mock.Anything, mock.MatchedBy(func(data []byte) bool {
+				return string(data) == `{"pkey": "0x1234", "guids": ["1122334455667788"], "membership": "limited", "index0": false}`
+			}))
 		})
 		It("Add guid to limited pkey that does not exist", func() {
 			client := &mocks.Client{}

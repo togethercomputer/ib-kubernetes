@@ -123,7 +123,7 @@ func (u *ufmPlugin) AddGuidsToPKey(pKey int, guids []net.HardwareAddr) error {
 	}
 
 	data := []byte(fmt.Sprintf(
-		`{"pkey": "0x%04X", "guids": [%v], "membership": "full"}`,
+		`{"pkey": "0x%04X", "guids": [%v], "membership": "full", "index0": true}`,
 		pKey, strings.Join(guidsString, ",")))
 	log.Info().Msgf("/ufmRest/resources/pkeys: Sending data %s", data)
 	if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys"), http.StatusOK, data); err != nil {
@@ -157,7 +157,7 @@ func (u *ufmPlugin) AddGuidsToLimitedPKey(pKey int, guids []net.HardwareAddr) er
 	}
 
 	data := []byte(fmt.Sprintf(
-		`{"pkey": "0x%04X", "guids": [%v], "membership": "limited"}`,
+		`{"pkey": "0x%04X", "guids": [%v], "membership": "limited", "index0": false}`,
 		pKey, strings.Join(guidsString, ",")))
 	log.Info().Msgf("/ufmRest/resources/pkeys: Sending data %s", data)
 	if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys"), http.StatusOK, data); err != nil {
