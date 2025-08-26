@@ -160,7 +160,7 @@ func (u *ufmPlugin) AddGuidsToLimitedPKey(pKey int, guids []net.HardwareAddr) er
 		`{"pkey": "0x%04X", "guids": [%v], "membership": "limited", "index0": false}`,
 		pKey, strings.Join(guidsString, ",")))
 	log.Info().Msgf("/ufmRest/resources/pkeys: Sending data %s", data)
-	if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys"), http.StatusCreated, data); err != nil {
+	if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys"), http.StatusOK, data); err != nil {
 		return fmt.Errorf("failed to add guids %v as limited members to PKey 0x%04X with error: %v", guids, pKey, err)
 	}
 
@@ -260,7 +260,7 @@ func (u *ufmPlugin) createEmptyPKey(pKey int) error {
 	// 	`{"pkey": "0x%04X", "index0": true, "ip_over_ib": %t, "mtu_limit": 4, "service_level": 0, "rate_limit": 300}`,
 	// 	pKey, u.conf.EnableIPOverIB))
 
-	// if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys/add"), http.StatusOK, data); err != nil {
+	// if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys/add"), http.StatusCreated, data); err != nil {
 	// 	return fmt.Errorf("failed to create empty PKey 0x%04X: %v", pKey, err)
 	// }
 
