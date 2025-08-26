@@ -257,7 +257,7 @@ func (u *ufmPlugin) createEmptyPKey(pKey int) error {
 	log.Info().Msgf("creating empty pKey 0x%04X with MTU 4k and IP over IB %s", pKey, ipOverIBStatus)
 
 	data := []byte(fmt.Sprintf(
-		`{"pkey": "0x%04X", "index0": true, "ip_over_ib": %t, "mtu_limit": 4, "service_level": 0, "rate_limit": 300, "guids": [], "membership": "full"}`,
+		`{"pkey": "0x%04X", "index0": true, "ip_over_ib": %t, "mtu_limit": 4, "service_level": 0, "rate_limit": 300}`,
 		pKey, u.conf.EnableIPOverIB))
 
 	if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys/add"), http.StatusOK, data); err != nil {
