@@ -238,7 +238,15 @@ func (u *ufmPlugin) pKeyExists(pKey int) (bool, error) {
 		}
 		return false, fmt.Errorf("failed to check if pkey 0x%04X exists: %v", pKey, err)
 	}
-	return len(response) > 0, nil
+
+	// Parse the JSON response to check if it contains actual data
+	var pkeyData map[string]interface{}
+	if err := json.Unmarshal(response, &pkeyData); err != nil {
+		return false, fmt.Errorf("failed to parse pkey response: %v", err)
+	}
+
+	// If the response is empty (like {}) or doesn't contain expected fields, the pkey doesn't exist
+	return len(pkeyData) > 0, nil
 }
 
 func (u *ufmPlugin) createEmptyPKey(pKey int) error {
