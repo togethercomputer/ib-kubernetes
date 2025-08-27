@@ -123,7 +123,8 @@ func (u *ufmPlugin) AddGuidsToPKey(pKey int, guids []net.HardwareAddr) error {
 	}
 
 	data := []byte(fmt.Sprintf(
-		`{"pkey": "0x%04X", "guids": [%v], "membership": "full", "index0": true}`,
+		`{"pkey": "0x%04X", "guids": [%v], "membership": "full", "index0": true, "mtu_limit": 4, "service_level": 0, "rate_limit": 300}`,
+
 		pKey, strings.Join(guidsString, ",")))
 	log.Info().Msgf("/ufmRest/resources/pkeys: Sending data %s", data)
 	if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys"), http.StatusOK, data); err != nil {
@@ -245,19 +246,19 @@ func (u *ufmPlugin) pKeyExists(pKey int) (bool, error) {
 		return false, fmt.Errorf("failed to parse pkey response: %v", err)
 	}
 
+	log.Info().Msgf("Pkey 0x%04X doesn't exist", pKey)
 	// If the response is empty (like {}) or doesn't contain expected fields, the pkey doesn't exist
 	return len(pkeyData) > 0, nil
 }
 
 func (u *ufmPlugin) createEmptyPKey(pKey int) error {
-	ipOverIBStatus := "disabled"
-	if u.conf.EnableIPOverIB {
-		ipOverIBStatus = "enabled"
-	}
-	log.Info().Msgf("creating empty pKey 0x%04X with MTU 4k and IP over IB %s", pKey, ipOverIBStatus)
-
 	// WARNING - this breaks UFM and causes it to reboot back to factory settings!!!
 	// TODO: fix this by finding the right API call to create a pkey
+	// ipOverIBStatus := "disabled"
+	// if u.conf.EnableIPOverIB {
+	// 	ipOverIBStatus = "enabled"
+	// }
+	// log.Info().Msgf("creating empty pKey 0x%04X with MTU 4k and IP over IB %s", pKey, ipOverIBStatus)
 	// data := []byte(fmt.Sprintf(
 	// 	`{"pkey": "0x%04X", "index0": true, "ip_over_ib": %t, "mtu_limit": 4, "service_level": 0, "rate_limit": 300}`,
 	// 	pKey, u.conf.EnableIPOverIB))

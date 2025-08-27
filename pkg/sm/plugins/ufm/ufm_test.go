@@ -103,7 +103,7 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 
 			// Verify the Post call was made with index0: true
 			client.AssertCalled(GinkgoT(), "Post", mock.Anything, mock.Anything, mock.MatchedBy(func(data []byte) bool {
-				return string(data) == `{"pkey": "0x1234", "guids": ["1122334455667788"], "membership": "full", "index0": true}`
+				return string(data) == `{"pkey": "0x1234", "guids": ["1122334455667788"], "membership": "full", "index0": true, "mtu_limit": 4, "service_level": 0, "rate_limit": 300}`
 			}))
 		})
 		It("Add guid to invalid pkey", func() {
