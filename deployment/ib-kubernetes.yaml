@@ -163,4 +163,9 @@ spec:
                   key: DEFAULT_LIMITED_PARTITION
                   name: ib-kubernetes-config
                   optional: true
-            
+            - name: ENABLE_INDEX0_FOR_PRIMARY_PKEY # add
+              valueFrom:
+                configMapKeyRef:
+                  key: ENABLE_INDEX0_FOR_PRIMARY_PKEY
+                  name: ib-kubernetes-config
+                  optional: true
