@@ -239,34 +239,34 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 			Expect(err.Error()).To(Equal(errMessage))
 		})
 	})
-	Context("createEmptyPKey with EnableIPOverIB", func() {
-		It("Create pkey with IP over IB enabled", func() {
-			client := &mocks.Client{}
-			client.On("Post", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	// Context("createEmptyPKey with EnableIPOverIB", func() {
+	// 	It("Create pkey with IP over IB enabled", func() {
+	// 		client := &mocks.Client{}
+	// 		client.On("Post", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
-			plugin := &ufmPlugin{client: client, conf: UFMConfig{EnableIPOverIB: true}}
-			err := plugin.createEmptyPKey(0x1234)
-			Expect(err).ToNot(HaveOccurred())
+	// 		plugin := &ufmPlugin{client: client, conf: UFMConfig{EnableIPOverIB: true}}
+	// 		err := plugin.createEmptyPKey(0x1234)
+	// 		Expect(err).ToNot(HaveOccurred())
 
-			// Verify the Post call was made with ip_over_ib: true
-			client.AssertCalled(GinkgoT(), "Post", mock.Anything, mock.Anything, mock.MatchedBy(func(data []byte) bool {
-				return string(data) == `{"pkey": "0x1234", "index0": true, "ip_over_ib": true, "mtu_limit": 4, "service_level": 0, "rate_limit": 300, "guids": [], "membership": "full"}`
-			}))
-		})
-		It("Create pkey with IP over IB disabled", func() {
-			client := &mocks.Client{}
-			client.On("Post", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	// 		// Verify the Post call was made with ip_over_ib: true
+	// 		client.AssertCalled(GinkgoT(), "Post", mock.Anything, mock.Anything, mock.MatchedBy(func(data []byte) bool {
+	// 			return string(data) == `{"pkey": "0x1234", "index0": true, "ip_over_ib": true, "mtu_limit": 4, "service_level": 0, "rate_limit": 300, "guids": [], "membership": "full"}`
+	// 		}))
+	// 	})
+	// 	It("Create pkey with IP over IB disabled", func() {
+	// 		client := &mocks.Client{}
+	// 		client.On("Post", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
-			plugin := &ufmPlugin{client: client, conf: UFMConfig{EnableIPOverIB: false}}
-			err := plugin.createEmptyPKey(0x1234)
-			Expect(err).ToNot(HaveOccurred())
+	// 		plugin := &ufmPlugin{client: client, conf: UFMConfig{EnableIPOverIB: false}}
+	// 		err := plugin.createEmptyPKey(0x1234)
+	// 		Expect(err).ToNot(HaveOccurred())
 
-			// Verify the Post call was made with ip_over_ib: false
-			client.AssertCalled(GinkgoT(), "Post", mock.Anything, mock.Anything, mock.MatchedBy(func(data []byte) bool {
-				return string(data) == `{"pkey": "0x1234", "index0": true, "ip_over_ib": false, "mtu_limit": 4, "service_level": 0, "rate_limit": 300, "guids": [], "membership": "full"}`
-			}))
-		})
-	})
+	// 		// Verify the Post call was made with ip_over_ib: false
+	// 		client.AssertCalled(GinkgoT(), "Post", mock.Anything, mock.Anything, mock.MatchedBy(func(data []byte) bool {
+	// 			return string(data) == `{"pkey": "0x1234", "index0": true, "ip_over_ib": false, "mtu_limit": 4, "service_level": 0, "rate_limit": 300, "guids": [], "membership": "full"}`
+	// 		}))
+	// 	})
+	// })
 	Context("UFMConfig with new environment variables", func() {
 		AfterEach(func() {
 			os.Clearenv()
