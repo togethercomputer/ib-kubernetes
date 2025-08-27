@@ -19,6 +19,8 @@ type DaemonConfig struct {
 	DefaultLimitedPartition string `env:"DEFAULT_LIMITED_PARTITION"`
 	// Enable IP over IB functionality
 	EnableIPOverIB bool `env:"ENABLE_IP_OVER_IB" envDefault:"false"`
+	// Enable index0 for primary pkey GUID additions
+	EnableIndex0ForPrimaryPkey bool `env:"ENABLE_INDEX0_FOR_PRIMARY_PKEY" envDefault:"true"`
 }
 
 type GUIDPoolConfig struct {
@@ -37,6 +39,13 @@ func (dc *DaemonConfig) ReadConfig() error {
 		log.Warn().Msg("New partitions will be created with IP over IB enabled.")
 	} else {
 		log.Info().Msg("New partitions will be created with IP over IB disabled.")
+	}
+
+	// If index0 for primary pkey enabled - log at startup
+	if dc.EnableIndex0ForPrimaryPkey {
+		log.Info().Msg("Primary pkey GUID additions will be created with index0 enabled.")
+	} else {
+		log.Info().Msg("Primary pkey GUID additions will be created with index0 disabled.")
 	}
 
 	// If default limited partition is set - log at startup

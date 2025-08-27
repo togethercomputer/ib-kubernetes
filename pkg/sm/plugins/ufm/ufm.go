@@ -35,8 +35,9 @@ type UFMConfig struct {
 	Port                    int    `env:"UFM_PORT"`                             // REST API port of ufm
 	HTTPSchema              string `env:"UFM_HTTP_SCHEMA"`                      // http or https
 	Certificate             string `env:"UFM_CERTIFICATE"`                      // Certificate of ufm
-	EnableIPOverIB          bool   `env:"ENABLE_IP_OVER_IB" envDefault:"false"` // Enable IP over IB functionality
-	DefaultLimitedPartition string `env:"DEFAULT_LIMITED_PARTITION"`            // Default partition key for limited membership
+	EnableIPOverIB             bool   `env:"ENABLE_IP_OVER_IB" envDefault:"false"`         // Enable IP over IB functionality
+	DefaultLimitedPartition    string `env:"DEFAULT_LIMITED_PARTITION"`                    // Default partition key for limited membership
+	EnableIndex0ForPrimaryPkey bool   `env:"ENABLE_INDEX0_FOR_PRIMARY_PKEY" envDefault:"true"` // Enable index0 for primary pkey GUID additions
 }
 
 func newUfmPlugin() (*ufmPlugin, error) {
@@ -48,6 +49,7 @@ func newUfmPlugin() (*ufmPlugin, error) {
 	// Debug logging for environment variable parsing
 	log.Info().Msgf("UFM plugin: Environment variable ENABLE_IP_OVER_IB parsed as: %t", ufmConf.EnableIPOverIB)
 	log.Info().Msgf("UFM plugin: Environment variable DEFAULT_LIMITED_PARTITION parsed as: '%s'", ufmConf.DefaultLimitedPartition)
+	log.Info().Msgf("UFM plugin: Environment variable ENABLE_INDEX0_FOR_PRIMARY_PKEY parsed as: %t", ufmConf.EnableIndex0ForPrimaryPkey)
 
 	if ufmConf.Username == "" || ufmConf.Password == "" || ufmConf.Address == "" {
 		return nil, fmt.Errorf("missing one or more required fileds for ufm [\"username\", \"password\", \"address\"]")
@@ -123,9 +125,8 @@ func (u *ufmPlugin) AddGuidsToPKey(pKey int, guids []net.HardwareAddr) error {
 	}
 
 	data := []byte(fmt.Sprintf(
-		`{"pkey": "0x%04X", "guids": [%v], "membership": "full", "index0": true, "mtu_limit": 4, "service_level": 0, "rate_limit": 300}`,
-
-		pKey, strings.Join(guidsString, ",")))
+		`{"pkey": "0x%04X", "guids": [%v], "membership": "full", "index0": %t}`,
+		pKey, strings.Join(guidsString, ","), u.conf.EnableIndex0ForPrimaryPkey))
 	log.Info().Msgf("/ufmRest/resources/pkeys: Sending data %s", data)
 	if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys"), http.StatusOK, data); err != nil {
 		return fmt.Errorf("failed to add guids %v to PKey 0x%04X with error: %v", guids, pKey, err)
@@ -291,6 +292,17 @@ func (u *ufmPlugin) SetConfig(config map[string]interface{}) error {
 		if strVal, ok := defaultLimitedPartition.(string); ok {
 			u.conf.DefaultLimitedPartition = strVal
 			log.Info().Msgf("UFM plugin: DefaultLimitedPartition set to %s via SetConfig", strVal)
+		}
+	}
+
+	if enableIndex0ForPrimaryPkey, exists := config["ENABLE_INDEX0_FOR_PRIMARY_PKEY"]; exists {
+		if boolVal, ok := enableIndex0ForPrimaryPkey.(bool); ok {
+			u.conf.EnableIndex0ForPrimaryPkey = boolVal
+			log.Info().Msgf("UFM plugin: EnableIndex0ForPrimaryPkey set to %t via SetConfig", boolVal)
+		} else if strVal, ok := enableIndex0ForPrimaryPkey.(string); ok {
+			// Handle string values like "true", "false"
+			u.conf.EnableIndex0ForPrimaryPkey = strVal == "true"
+			log.Info().Msgf("UFM plugin: EnableIndex0ForPrimaryPkey set to %t via SetConfig (from string %s)", u.conf.EnableIndex0ForPrimaryPkey, strVal)
 		}
 	}
 

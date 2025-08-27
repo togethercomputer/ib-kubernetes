@@ -112,8 +112,9 @@ func NewDaemon() (Daemon, error) {
 
 	// Pass configuration from daemon to the plugin
 	pluginConfig := map[string]interface{}{
-		"ENABLE_IP_OVER_IB":         daemonConfig.EnableIPOverIB,
-		"DEFAULT_LIMITED_PARTITION": daemonConfig.DefaultLimitedPartition,
+		"ENABLE_IP_OVER_IB":                 daemonConfig.EnableIPOverIB,
+		"DEFAULT_LIMITED_PARTITION":         daemonConfig.DefaultLimitedPartition,
+		"ENABLE_INDEX0_FOR_PRIMARY_PKEY":    daemonConfig.EnableIndex0ForPrimaryPkey,
 	}
 	if err := smClient.SetConfig(pluginConfig); err != nil {
 		log.Warn().Msgf("Failed to set configuration on subnet manager plugin: %v", err)

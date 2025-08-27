@@ -94,7 +94,7 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 			client.On("Get", mock.Anything, mock.Anything).Return([]byte(`{"pkey": "0x1234"}`), nil)
 			client.On("Post", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
-			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{EnableIndex0ForPrimaryPkey: true}}
 			guid, err := net.ParseMAC("11:22:33:44:55:66:77:88")
 			Expect(err).ToNot(HaveOccurred())
 
@@ -103,7 +103,24 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 
 			// Verify the Post call was made with index0: true
 			client.AssertCalled(GinkgoT(), "Post", mock.Anything, mock.Anything, mock.MatchedBy(func(data []byte) bool {
-				return string(data) == `{"pkey": "0x1234", "guids": ["1122334455667788"], "membership": "full", "index0": true, "mtu_limit": 4, "service_level": 0, "rate_limit": 300}`
+				return string(data) == `{"pkey": "0x1234", "guids": ["1122334455667788"], "membership": "full", "index0": true}`
+			}))
+		})
+		It("Add guid to valid pkey with index0 false", func() {
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(`{"pkey": "0x1234"}`), nil)
+			client.On("Post", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{EnableIndex0ForPrimaryPkey: false}}
+			guid, err := net.ParseMAC("11:22:33:44:55:66:77:88")
+			Expect(err).ToNot(HaveOccurred())
+
+			err = plugin.AddGuidsToPKey(0x1234, []net.HardwareAddr{guid})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify the Post call was made with index0: false
+			client.AssertCalled(GinkgoT(), "Post", mock.Anything, mock.Anything, mock.MatchedBy(func(data []byte) bool {
+				return string(data) == `{"pkey": "0x1234", "guids": ["1122334455667788"], "membership": "full", "index0": false}`
 			}))
 		})
 		It("Add guid to invalid pkey", func() {
@@ -284,6 +301,17 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 			Expect(plugin.conf.EnableIPOverIB).To(BeTrue())
 			Expect(plugin.conf.DefaultLimitedPartition).To(Equal("0x1"))
 		})
+		It("newUfmPlugin with EnableIndex0ForPrimaryPkey config", func() {
+			Expect(os.Setenv("UFM_USERNAME", "admin")).ToNot(HaveOccurred())
+			Expect(os.Setenv("UFM_PASSWORD", "123456")).ToNot(HaveOccurred())
+			Expect(os.Setenv("UFM_ADDRESS", "1.1.1.1")).ToNot(HaveOccurred())
+			Expect(os.Setenv("UFM_HTTP_SCHEMA", "http")).ToNot(HaveOccurred())
+			Expect(os.Setenv("ENABLE_INDEX0_FOR_PRIMARY_PKEY", "false")).ToNot(HaveOccurred())
+			plugin, err := newUfmPlugin()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plugin).ToNot(BeNil())
+			Expect(plugin.conf.EnableIndex0ForPrimaryPkey).To(BeFalse())
+		})
 		It("newUfmPlugin with default EnableIPOverIB config", func() {
 			Expect(os.Setenv("UFM_USERNAME", "admin")).ToNot(HaveOccurred())
 			Expect(os.Setenv("UFM_PASSWORD", "123456")).ToNot(HaveOccurred())
@@ -292,8 +320,9 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 			plugin, err := newUfmPlugin()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plugin).ToNot(BeNil())
-			Expect(plugin.conf.EnableIPOverIB).To(BeFalse())          // Default should be false
-			Expect(plugin.conf.DefaultLimitedPartition).To(Equal("")) // Default should be empty
+			Expect(plugin.conf.EnableIPOverIB).To(BeFalse())                    // Default should be false
+			Expect(plugin.conf.DefaultLimitedPartition).To(Equal(""))           // Default should be empty
+			Expect(plugin.conf.EnableIndex0ForPrimaryPkey).To(BeTrue())         // Default should be true
 		})
 		It("newUfmPlugin with explicit false EnableIPOverIB config", func() {
 			Expect(os.Setenv("UFM_USERNAME", "admin")).ToNot(HaveOccurred())
