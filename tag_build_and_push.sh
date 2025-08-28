@@ -1,6 +1,7 @@
 #! /bin/bash
 # get short git commit hash
-TAG=$(git rev-parse --short HEAD)
+#TAG=$(git rev-parse --short HEAD)
+TAG=v1.2.1
 echo "Tag: $TAG"
 
 set -eou pipefail
