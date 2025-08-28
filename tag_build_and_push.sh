@@ -1,8 +1,7 @@
 #! /bin/bash
-# get short git commit hash
-#TAG=$(git rev-parse --short HEAD)
-TAG=v1.2.1
-echo "Tag: $TAG"
+# if env var exists, use it - or else get short git commit hash
+TAG=${TAG:-$(git rev-parse --short HEAD)}
+echo "Going to build and push tag: $TAG"
 
 set -eou pipefail
 
