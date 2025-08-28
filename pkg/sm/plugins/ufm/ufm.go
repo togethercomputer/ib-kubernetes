@@ -29,12 +29,15 @@ const (
 )
 
 type UFMConfig struct {
-	Username    string `env:"UFM_USERNAME"`    // Username of ufm
-	Password    string `env:"UFM_PASSWORD"`    // Password of ufm
-	Address     string `env:"UFM_ADDRESS"`     // IP address or hostname of ufm server
-	Port        int    `env:"UFM_PORT"`        // REST API port of ufm
-	HTTPSchema  string `env:"UFM_HTTP_SCHEMA"` // http or https
-	Certificate string `env:"UFM_CERTIFICATE"` // Certificate of ufm
+	Username                string `env:"UFM_USERNAME"`                         // Username of ufm
+	Password                string `env:"UFM_PASSWORD"`                         // Password of ufm
+	Address                 string `env:"UFM_ADDRESS"`                          // IP address or hostname of ufm server
+	Port                    int    `env:"UFM_PORT"`                             // REST API port of ufm
+	HTTPSchema              string `env:"UFM_HTTP_SCHEMA"`                      // http or https
+	Certificate             string `env:"UFM_CERTIFICATE"`                      // Certificate of ufm
+	EnableIPOverIB             bool   `env:"ENABLE_IP_OVER_IB" envDefault:"false"`         // Enable IP over IB functionality
+	DefaultLimitedPartition    string `env:"DEFAULT_LIMITED_PARTITION"`                    // Default partition key for limited membership
+	EnableIndex0ForPrimaryPkey bool   `env:"ENABLE_INDEX0_FOR_PRIMARY_PKEY" envDefault:"true"` // Enable index0 for primary pkey GUID additions
 }
 
 func newUfmPlugin() (*ufmPlugin, error) {
@@ -42,6 +45,11 @@ func newUfmPlugin() (*ufmPlugin, error) {
 	if err := env.Parse(&ufmConf); err != nil {
 		return nil, err
 	}
+
+	// Debug logging for environment variable parsing
+	log.Info().Msgf("UFM plugin: Environment variable ENABLE_IP_OVER_IB parsed as: %t", ufmConf.EnableIPOverIB)
+	log.Info().Msgf("UFM plugin: Environment variable DEFAULT_LIMITED_PARTITION parsed as: '%s'", ufmConf.DefaultLimitedPartition)
+	log.Info().Msgf("UFM plugin: Environment variable ENABLE_INDEX0_FOR_PRIMARY_PKEY parsed as: %t", ufmConf.EnableIndex0ForPrimaryPkey)
 
 	if ufmConf.Username == "" || ufmConf.Password == "" || ufmConf.Address == "" {
 		return nil, fmt.Errorf("missing one or more required fileds for ufm [\"username\", \"password\", \"address\"]")
@@ -98,6 +106,18 @@ func (u *ufmPlugin) AddGuidsToPKey(pKey int, guids []net.HardwareAddr) error {
 		return fmt.Errorf("invalid pkey 0x%04X, out of range 0x0001 - 0xFFFE", pKey)
 	}
 
+	// Check if PKEY exists, create it if it doesn't
+	exists, err := u.pKeyExists(pKey)
+	if err != nil {
+		return fmt.Errorf("failed to check if pkey exists: %v", err)
+	}
+
+	if !exists {
+		if err := u.createEmptyPKey(pKey); err != nil {
+			return fmt.Errorf("failed to create pkey: %v", err)
+		}
+	}
+
 	guidsString := make([]string, 0, len(guids))
 	for _, guid := range guids {
 		guidAddr := ibUtils.GUIDToString(guid)
@@ -105,11 +125,45 @@ func (u *ufmPlugin) AddGuidsToPKey(pKey int, guids []net.HardwareAddr) error {
 	}
 
 	data := []byte(fmt.Sprintf(
-		`{"pkey": "0x%04X", "index0": true, "ip_over_ib": false, "mtu_limit": 4, "service_level": 0, "rate_limit": 300, "guids": [%v], "membership": "full"}`,
-		pKey, strings.Join(guidsString, ",")))
+		`{"pkey": "0x%04X", "guids": [%v], "membership": "full", "index0": %t}`,
+		pKey, strings.Join(guidsString, ","), u.conf.EnableIndex0ForPrimaryPkey))
 	log.Info().Msgf("/ufmRest/resources/pkeys: Sending data %s", data)
 	if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys"), http.StatusOK, data); err != nil {
 		return fmt.Errorf("failed to add guids %v to PKey 0x%04X with error: %v", guids, pKey, err)
+	}
+
+	return nil
+}
+
+func (u *ufmPlugin) AddGuidsToLimitedPKey(pKey int, guids []net.HardwareAddr) error {
+	log.Info().Msgf("adding guids %v as limited members to pKey 0x%04X", guids, pKey)
+
+	if !ibUtils.IsPKeyValid(pKey) {
+		return fmt.Errorf("invalid pkey 0x%04X, out of range 0x0001 - 0xFFFE", pKey)
+	}
+
+	// Check if PKEY exists, do not create it if it doesn't exist
+	exists, err := u.pKeyExists(pKey)
+	if err != nil {
+		return fmt.Errorf("failed to check if pkey exists: %v", err)
+	}
+
+	if !exists {
+		return fmt.Errorf("limited pkey 0x%04X does not exist, will not create it", pKey)
+	}
+
+	guidsString := make([]string, 0, len(guids))
+	for _, guid := range guids {
+		guidAddr := ibUtils.GUIDToString(guid)
+		guidsString = append(guidsString, fmt.Sprintf("%q", guidAddr))
+	}
+
+	data := []byte(fmt.Sprintf(
+		`{"pkey": "0x%04X", "guids": [%v], "membership": "limited", "index0": false}`,
+		pKey, strings.Join(guidsString, ",")))
+	log.Info().Msgf("/ufmRest/resources/pkeys: Sending data %s", data)
+	if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys"), http.StatusOK, data); err != nil {
+		return fmt.Errorf("failed to add guids %v as limited members to PKey 0x%04X with error: %v", guids, pKey, err)
 	}
 
 	return nil
@@ -178,8 +232,81 @@ func (u *ufmPlugin) ListGuidsInUse() ([]string, error) {
 	return guids, nil
 }
 
+func (u *ufmPlugin) pKeyExists(pKey int) (bool, error) {
+	response, err := u.client.Get(u.buildURL(fmt.Sprintf("/ufmRest/resources/pkeys/0x%04X", pKey)), http.StatusOK)
+	if err != nil {
+		if strings.Contains(err.Error(), "404") {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check if pkey 0x%04X exists: %v", pKey, err)
+	}
+
+	// Parse the JSON response to check if it contains actual data
+	var pkeyData map[string]interface{}
+	if err := json.Unmarshal(response, &pkeyData); err != nil {
+		return false, fmt.Errorf("failed to parse pkey response: %v", err)
+	}
+
+	log.Info().Msgf("Pkey 0x%04X doesn't exist", pKey)
+	// If the response is empty (like {}) or doesn't contain expected fields, the pkey doesn't exist
+	return len(pkeyData) > 0, nil
+}
+
+func (u *ufmPlugin) createEmptyPKey(pKey int) error {
+	// WARNING - this breaks UFM and causes it to reboot back to factory settings!!!
+	// TODO: fix this by finding the right API call to create a pkey
+	// ipOverIBStatus := "disabled"
+	// if u.conf.EnableIPOverIB {
+	// 	ipOverIBStatus = "enabled"
+	// }
+	// log.Info().Msgf("creating empty pKey 0x%04X with MTU 4k and IP over IB %s", pKey, ipOverIBStatus)
+	// data := []byte(fmt.Sprintf(
+	// 	`{"pkey": "0x%04X", "index0": true, "ip_over_ib": %t, "mtu_limit": 4, "service_level": 0, "rate_limit": 300}`,
+	// 	pKey, u.conf.EnableIPOverIB))
+
+	// if _, err := u.client.Post(u.buildURL("/ufmRest/resources/pkeys/add"), http.StatusCreated, data); err != nil {
+	// 	return fmt.Errorf("failed to create empty PKey 0x%04X: %v", pKey, err)
+	// }
+
+	return nil
+}
+
 func (u *ufmPlugin) buildURL(path string) string {
 	return fmt.Sprintf("%s://%s:%d%s", u.conf.HTTPSchema, u.conf.Address, u.conf.Port, path)
+}
+
+// SetConfig allows the daemon to pass configuration to the plugin
+func (u *ufmPlugin) SetConfig(config map[string]interface{}) error {
+	if enableIPOverIB, exists := config["ENABLE_IP_OVER_IB"]; exists {
+		if boolVal, ok := enableIPOverIB.(bool); ok {
+			u.conf.EnableIPOverIB = boolVal
+			log.Info().Msgf("UFM plugin: EnableIPOverIB set to %t via SetConfig", boolVal)
+		} else if strVal, ok := enableIPOverIB.(string); ok {
+			// Handle string values like "true", "false"
+			u.conf.EnableIPOverIB = strVal == "true"
+			log.Info().Msgf("UFM plugin: EnableIPOverIB set to %t via SetConfig (from string %s)", u.conf.EnableIPOverIB, strVal)
+		}
+	}
+
+	if defaultLimitedPartition, exists := config["DEFAULT_LIMITED_PARTITION"]; exists {
+		if strVal, ok := defaultLimitedPartition.(string); ok {
+			u.conf.DefaultLimitedPartition = strVal
+			log.Info().Msgf("UFM plugin: DefaultLimitedPartition set to %s via SetConfig", strVal)
+		}
+	}
+
+	if enableIndex0ForPrimaryPkey, exists := config["ENABLE_INDEX0_FOR_PRIMARY_PKEY"]; exists {
+		if boolVal, ok := enableIndex0ForPrimaryPkey.(bool); ok {
+			u.conf.EnableIndex0ForPrimaryPkey = boolVal
+			log.Info().Msgf("UFM plugin: EnableIndex0ForPrimaryPkey set to %t via SetConfig", boolVal)
+		} else if strVal, ok := enableIndex0ForPrimaryPkey.(string); ok {
+			// Handle string values like "true", "false"
+			u.conf.EnableIndex0ForPrimaryPkey = strVal == "true"
+			log.Info().Msgf("UFM plugin: EnableIndex0ForPrimaryPkey set to %t via SetConfig (from string %s)", u.conf.EnableIndex0ForPrimaryPkey, strVal)
+		}
+	}
+
+	return nil
 }
 
 // Initialize applies configs to plugin and return a subnet manager client

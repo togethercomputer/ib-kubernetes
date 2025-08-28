@@ -1,0 +1,640 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    descheduler.alpha.kubernetes.io/request-evict-only: ""
+    hooks.kubevirt.io/hookSidecars: '[{"image": "public.ecr.aws/k6t4m3l7/kubevirt-sidecar:5616cac"}]'
+    k8s.v1.cni.cncf.io/network-status: |-
+      [{
+          "name": "kube-ovn",
+          "interface": "eth0",
+          "ips": [
+              "10.50.0.5"
+          ],
+          "mac": "f6:29:df:7d:d5:da",
+          "default": true,
+          "dns": {},
+          "gateway": [
+              "10.50.0.1"
+          ]
+      },{
+          "name": "test-yaron-with-partitions/test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-1",
+          "interface": "pod6dfd889bb4d",
+          "ips": [
+              "172.20.128.9"
+          ],
+          "dns": {},
+          "device-info": {
+              "type": "pci",
+              "version": "1.1.0",
+              "pci": {
+                  "pci-address": "0000:e3:00.1"
+              }
+          }
+      },{
+          "name": "test-yaron-with-partitions/test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-2",
+          "interface": "pod1b5e3d3aebd",
+          "ips": [
+              "172.20.128.10"
+          ],
+          "dns": {},
+          "device-info": {
+              "type": "pci",
+              "version": "1.1.0",
+              "pci": {
+                  "pci-address": "0000:9c:00.1"
+              }
+          }
+      },{
+          "name": "test-yaron-with-partitions/test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-3",
+          "interface": "pod17c48572395",
+          "ips": [
+              "172.20.128.11"
+          ],
+          "dns": {},
+          "device-info": {
+              "type": "pci",
+              "version": "1.1.0",
+              "pci": {
+                  "pci-address": "0000:ad:00.1"
+              }
+          }
+      },{
+          "name": "test-yaron-with-partitions/test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-4",
+          "interface": "poda8b12b8cd2b",
+          "ips": [
+              "172.20.128.12"
+          ],
+          "dns": {},
+          "device-info": {
+              "type": "pci",
+              "version": "1.1.0",
+              "pci": {
+                  "pci-address": "0000:1a:00.1"
+              }
+          }
+      },{
+          "name": "test-yaron-with-partitions/test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-5",
+          "interface": "podfbdfa9c6092",
+          "ips": [
+              "172.20.128.13"
+          ],
+          "dns": {},
+          "device-info": {
+              "type": "pci",
+              "version": "1.1.0",
+              "pci": {
+                  "pci-address": "0000:2c:00.1"
+              }
+          }
+      },{
+          "name": "test-yaron-with-partitions/test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-6",
+          "interface": "podeb140a2b94b",
+          "ips": [
+              "172.20.128.14"
+          ],
+          "dns": {},
+          "device-info": {
+              "type": "pci",
+              "version": "1.1.0",
+              "pci": {
+                  "pci-address": "0000:40:00.1"
+              }
+          }
+      },{
+          "name": "test-yaron-with-partitions/test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-7",
+          "interface": "pod2c81bc4badb",
+          "ips": [
+              "172.20.128.15"
+          ],
+          "dns": {},
+          "device-info": {
+              "type": "pci",
+              "version": "1.1.0",
+              "pci": {
+                  "pci-address": "0000:65:00.1"
+              }
+          }
+      },{
+          "name": "test-yaron-with-partitions/test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-8",
+          "interface": "pod652b63b70b1",
+          "ips": [
+              "172.20.128.16"
+          ],
+          "dns": {},
+          "device-info": {
+              "type": "pci",
+              "version": "1.1.0",
+              "pci": {
+                  "pci-address": "0000:c0:00.1"
+              }
+          }
+      }]
+    k8s.v1.cni.cncf.io/networks: '[{"name":"test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-1","namespace":"test-yaron-with-partitions","infiniband-guid":"02:01:00:00:00:00:00:1f","interface":"pod6dfd889bb4d","cni-args":{"mellanox.infiniband.app":"configured"}},{"name":"test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-2","namespace":"test-yaron-with-partitions","infiniband-guid":"02:01:00:00:00:00:00:18","interface":"pod1b5e3d3aebd","cni-args":{"mellanox.infiniband.app":"configured"}},{"name":"test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-3","namespace":"test-yaron-with-partitions","infiniband-guid":"02:01:00:00:00:00:00:19","interface":"pod17c48572395","cni-args":{"mellanox.infiniband.app":"configured"}},{"name":"test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-4","namespace":"test-yaron-with-partitions","infiniband-guid":"02:01:00:00:00:00:00:1a","interface":"poda8b12b8cd2b","cni-args":{"mellanox.infiniband.app":"configured"}},{"name":"test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-5","namespace":"test-yaron-with-partitions","infiniband-guid":"02:01:00:00:00:00:00:1b","interface":"podfbdfa9c6092","cni-args":{"mellanox.infiniband.app":"configured"}},{"name":"test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-6","namespace":"test-yaron-with-partitions","infiniband-guid":"02:01:00:00:00:00:00:1c","interface":"podeb140a2b94b","cni-args":{"mellanox.infiniband.app":"configured"}},{"name":"test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-7","namespace":"test-yaron-with-partitions","infiniband-guid":"02:01:00:00:00:00:00:1d","interface":"pod2c81bc4badb","cni-args":{"mellanox.infiniband.app":"configured"}},{"name":"test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-8","namespace":"test-yaron-with-partitions","infiniband-guid":"02:01:00:00:00:00:00:1e","interface":"pod652b63b70b1","cni-args":{"mellanox.infiniband.app":"configured"}}]'
+    kubectl.kubernetes.io/default-container: compute
+    kubevirt.io/domain: gpu-dp-zsjr4-dkznf
+    kubevirt.io/migrationTransportUnix: "true"
+    kubevirt.io/network-info: '{"interfaces":[{"network":"mlnx_connectx_7_dp_ib-1","deviceInfo":{"type":"pci","version":"1.1.0","pci":{"pci-address":"0000:e3:00.1"}}},{"network":"mlnx_connectx_7_dp_ib-2","deviceInfo":{"type":"pci","version":"1.1.0","pci":{"pci-address":"0000:9c:00.1"}}},{"network":"mlnx_connectx_7_dp_ib-3","deviceInfo":{"type":"pci","version":"1.1.0","pci":{"pci-address":"0000:ad:00.1"}}},{"network":"mlnx_connectx_7_dp_ib-4","deviceInfo":{"type":"pci","version":"1.1.0","pci":{"pci-address":"0000:1a:00.1"}}},{"network":"mlnx_connectx_7_dp_ib-5","deviceInfo":{"type":"pci","version":"1.1.0","pci":{"pci-address":"0000:2c:00.1"}}},{"network":"mlnx_connectx_7_dp_ib-6","deviceInfo":{"type":"pci","version":"1.1.0","pci":{"pci-address":"0000:40:00.1"}}},{"network":"mlnx_connectx_7_dp_ib-7","deviceInfo":{"type":"pci","version":"1.1.0","pci":{"pci-address":"0000:65:00.1"}}},{"network":"mlnx_connectx_7_dp_ib-8","deviceInfo":{"type":"pci","version":"1.1.0","pci":{"pci-address":"0000:c0:00.1"}}}]}'
+    kubevirt.io/vm-generation: "1"
+    ovn.kubernetes.io/allocated: "true"
+    ovn.kubernetes.io/cidr: 10.50.0.0/24
+    ovn.kubernetes.io/gateway: 10.50.0.1
+    ovn.kubernetes.io/ip_address: 10.50.0.5
+    ovn.kubernetes.io/logical_router: ovn-cluster
+    ovn.kubernetes.io/logical_switch: test-yaron-with-partitions
+    ovn.kubernetes.io/mac_address: f6:29:df:7d:d5:da
+    ovn.kubernetes.io/pod_nic_type: veth-pair
+    ovn.kubernetes.io/routed: "true"
+    ovn.kubernetes.io/virtualmachine: gpu-dp-zsjr4-dkznf
+    post.hook.backup.velero.io/command: '["/usr/bin/virt-freezer", "--unfreeze", "--name",
+      "gpu-dp-zsjr4-dkznf", "--namespace", "test-yaron-with-partitions"]'
+    post.hook.backup.velero.io/container: compute
+    pre.hook.backup.velero.io/command: '["/usr/bin/virt-freezer", "--freeze", "--name",
+      "gpu-dp-zsjr4-dkznf", "--namespace", "test-yaron-with-partitions"]'
+    pre.hook.backup.velero.io/container: compute
+    qemuargs.vm.kubevirt.io/args: -fw_cfg name=opt/ovmf/X-PciMmio64Mb,string=2097152
+  creationTimestamp: "2025-08-15T03:02:54Z"
+  finalizers:
+  - ufm.together.ai/pod-guid-cleanup-protection
+  generateName: virt-launcher-gpu-dp-zsjr4-dkznf-
+  generation: 1
+  labels:
+    capk.cluster.x-k8s.io/kubevirt-machine-name: gpu-dp-zsjr4-dkznf
+    capk.cluster.x-k8s.io/kubevirt-machine-namespace: test-yaron-with-partitions
+    cluster.x-k8s.io/cluster-name: test-yaron-with-partitions
+    cluster.x-k8s.io/role: worker
+    kubevirt.io: virt-launcher
+    kubevirt.io/created-by: eec3ac39-1823-4d00-a98e-a1e97012fbb9
+    kubevirt.io/nodeName: gpu007c.cloud.together.ai
+    kubevirt.io/vm: gpu-dp-zsjr4-dkznf
+    name: gpu-dp-zsjr4-dkznf
+    vm.kubevirt.io/name: gpu-dp-zsjr4-dkznf
+  name: virt-launcher-gpu-dp-zsjr4-dkznf-zktl2
+  namespace: test-yaron-with-partitions
+  ownerReferences:
+  - apiVersion: kubevirt.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: VirtualMachineInstance
+    name: gpu-dp-zsjr4-dkznf
+    uid: eec3ac39-1823-4d00-a98e-a1e97012fbb9
+  resourceVersion: "120786005"
+  uid: 1a0c3fb4-6b7d-452b-8ee9-150ad55da19a
+spec:
+  automountServiceAccountToken: false
+  containers:
+  - command:
+    - /usr/bin/virt-launcher-monitor
+    - --qemu-timeout
+    - 341s
+    - --name
+    - gpu-dp-zsjr4-dkznf
+    - --uid
+    - eec3ac39-1823-4d00-a98e-a1e97012fbb9
+    - --namespace
+    - test-yaron-with-partitions
+    - --kubevirt-share-dir
+    - /var/run/kubevirt
+    - --ephemeral-disk-dir
+    - /var/run/kubevirt-ephemeral-disks
+    - --container-disk-dir
+    - /var/run/kubevirt/container-disks
+    - --grace-period-seconds
+    - "45"
+    - --hook-sidecars
+    - "1"
+    - --ovmf-path
+    - /usr/share/OVMF
+    - --run-as-nonroot
+    env:
+    - name: XDG_CACHE_HOME
+      value: /var/run/kubevirt-private
+    - name: XDG_CONFIG_HOME
+      value: /var/run/kubevirt-private
+    - name: XDG_RUNTIME_DIR
+      value: /var/run
+    - name: KUBEVIRT_RESOURCE_NAME_mlnx_connectx_7_dp_ib-2
+      value: openshift.io/mlnx_connectx_7_dp_ib
+    - name: KUBEVIRT_RESOURCE_NAME_mlnx_connectx_7_dp_ib-3
+      value: openshift.io/mlnx_connectx_7_dp_ib
+    - name: KUBEVIRT_RESOURCE_NAME_mlnx_connectx_7_dp_ib-4
+      value: openshift.io/mlnx_connectx_7_dp_ib
+    - name: KUBEVIRT_RESOURCE_NAME_mlnx_connectx_7_dp_ib-5
+      value: openshift.io/mlnx_connectx_7_dp_ib
+    - name: KUBEVIRT_RESOURCE_NAME_mlnx_connectx_7_dp_ib-6
+      value: openshift.io/mlnx_connectx_7_dp_ib
+    - name: KUBEVIRT_RESOURCE_NAME_mlnx_connectx_7_dp_ib-7
+      value: openshift.io/mlnx_connectx_7_dp_ib
+    - name: KUBEVIRT_RESOURCE_NAME_mlnx_connectx_7_dp_ib-8
+      value: openshift.io/mlnx_connectx_7_dp_ib
+    - name: KUBEVIRT_RESOURCE_NAME_mlnx_connectx_7_dp_ib-1
+      value: openshift.io/mlnx_connectx_7_dp_ib
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: metadata.name
+    image: quay.io/kubevirt/virt-launcher:v1.4.0
+    imagePullPolicy: IfNotPresent
+    name: compute
+    ports:
+    - containerPort: 22
+      name: ssh
+      protocol: TCP
+    - containerPort: 16443
+      name: telegraf
+      protocol: TCP
+    resources:
+      limits:
+        cpu: "65"
+        devices.kubevirt.io/kvm: "1"
+        devices.kubevirt.io/tun: "1"
+        devices.kubevirt.io/vhost-net: "1"
+        ephemeral-storage: "32262254720"
+        hugepages-1Gi: 512Gi
+        memory: 56246Mi
+        nvidia.com/GH100_H100_NVSWITCH: "4"
+        nvidia.com/GH100_H100_SXM5_80GB: "8"
+        openshift.io/mlnx_connectx_7_dp_ib: "8"
+      requests:
+        cpu: "65"
+        devices.kubevirt.io/kvm: "1"
+        devices.kubevirt.io/tun: "1"
+        devices.kubevirt.io/vhost-net: "1"
+        ephemeral-storage: 50M
+        hugepages-1Gi: 512Gi
+        memory: 56246Mi
+        nvidia.com/GH100_H100_NVSWITCH: "4"
+        nvidia.com/GH100_H100_SXM5_80GB: "8"
+        openshift.io/mlnx_connectx_7_dp_ib: "8"
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        add:
+        - NET_BIND_SERVICE
+        drop:
+        - ALL
+      privileged: false
+      runAsGroup: 107
+      runAsNonRoot: true
+      runAsUser: 107
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/run/kubevirt-private
+      name: private
+    - mountPath: /var/run/kubevirt
+      name: public
+    - mountPath: /var/run/kubevirt-ephemeral-disks
+      name: ephemeral-disks
+    - mountPath: /var/run/kubevirt/container-disks
+      mountPropagation: HostToContainer
+      name: container-disks
+    - mountPath: /var/run/libvirt
+      name: libvirt-runtime
+    - mountPath: /var/run/kubevirt/sockets
+      name: sockets
+    - mountPath: /var/run/kubevirt-private/vmi-disks/containervolume
+      name: containervolume
+    - mountPath: /var/run/kubevirt-private/vmi-disks/scratch
+      name: scratch
+    - mountPath: /var/run/kubevirt-private/secret/cloudinitvolume/userdata
+      name: cloudinitvolume-udata
+      readOnly: true
+      subPath: userdata
+    - mountPath: /var/run/kubevirt-private/secret/cloudinitvolume/userData
+      name: cloudinitvolume-udata
+      readOnly: true
+      subPath: userData
+    - mountPath: /var/run/kubevirt-hooks
+      name: hook-sidecar-sockets
+    - mountPath: /dev/hugepages
+      name: hugepages
+    - mountPath: /dev/hugepages/libvirt/qemu
+      name: hugetblfs-dir
+    - mountPath: /var/run/kubevirt/hotplug-disks
+      mountPropagation: HostToContainer
+      name: hotplug-disks
+    - mountPath: /etc/podinfo
+      name: network-info-annotation
+  - args:
+    - --logfile
+    - /var/run/kubevirt-private/eec3ac39-1823-4d00-a98e-a1e97012fbb9/virt-serial0-log
+    command:
+    - /usr/bin/virt-tail
+    env:
+    - name: VIRT_LAUNCHER_LOG_VERBOSITY
+      value: "2"
+    image: quay.io/kubevirt/virt-launcher:v1.4.0
+    imagePullPolicy: IfNotPresent
+    name: guest-console-log
+    resources:
+      limits:
+        cpu: 15m
+        memory: 60M
+      requests:
+        cpu: 15m
+        memory: 60M
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      runAsNonRoot: true
+      runAsUser: 107
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/run/kubevirt-private
+      name: private
+      readOnly: true
+  - env:
+    - name: XDG_CACHE_HOME
+      value: /var/run/kubevirt-private
+    - name: XDG_CONFIG_HOME
+      value: /var/run/kubevirt-private
+    - name: XDG_RUNTIME_DIR
+      value: /var/run
+    image: public.ecr.aws/k6t4m3l7/kubevirt-sidecar:5616cac
+    imagePullPolicy: IfNotPresent
+    name: hook-sidecar-0
+    resources:
+      limits:
+        cpu: 200m
+        memory: 64M
+      requests:
+        cpu: 200m
+        memory: 64M
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      privileged: false
+      runAsGroup: 107
+      runAsNonRoot: true
+      runAsUser: 107
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/run/kubevirt-hooks
+      name: hook-sidecar-sockets
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: false
+  hostname: gpu-dp-zsjr4-dkznf
+  nodeName: gpu007c.cloud.together.ai
+  nodeSelector:
+    cpumanager: "true"
+    kubernetes.io/arch: amd64
+    kubevirt.io/schedulable: "true"
+  preemptionPolicy: PreemptLowerPriority
+  priority: 0
+  readinessGates:
+  - conditionType: kubevirt.io/virtual-machine-unpaused
+  restartPolicy: Never
+  schedulerName: default-scheduler
+  securityContext:
+    fsGroup: 107
+    runAsGroup: 107
+    runAsNonRoot: true
+    runAsUser: 107
+  serviceAccount: default
+  serviceAccountName: default
+  terminationGracePeriodSeconds: 60
+  tolerations:
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+    tolerationSeconds: 300
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+    tolerationSeconds: 300
+  volumes:
+  - emptyDir: {}
+    name: private
+  - emptyDir: {}
+    name: public
+  - emptyDir: {}
+    name: sockets
+  - emptyDir: {}
+    name: virt-bin-share-dir
+  - emptyDir: {}
+    name: libvirt-runtime
+  - emptyDir: {}
+    name: ephemeral-disks
+  - emptyDir: {}
+    name: container-disks
+  - name: containervolume
+    persistentVolumeClaim:
+      claimName: gpu-dp-zsjr4-dkznf-ubuntu-22.04-dp-dv
+  - name: scratch
+    persistentVolumeClaim:
+      claimName: gpu-dp-zsjr4-dkznf-scratch
+  - name: cloudinitvolume-udata
+    secret:
+      defaultMode: 420
+      secretName: gpu-dp-zsjr4-dkznf-userdata
+  - emptyDir: {}
+    name: hook-sidecar-sockets
+  - emptyDir:
+      medium: HugePages
+    name: hugepages
+  - emptyDir: {}
+    name: hugetblfs-dir
+  - emptyDir: {}
+    name: hotplug-disks
+  - downwardAPI:
+      defaultMode: 420
+      items:
+      - fieldRef:
+          apiVersion: v1
+          fieldPath: metadata.annotations['kubevirt.io/network-info']
+        path: network-info
+    name: network-info-annotation
+status:
+  conditions:
+  - lastProbeTime: "2025-08-15T03:02:55Z"
+    lastTransitionTime: "2025-08-15T03:02:55Z"
+    message: the virtual machine is not paused
+    reason: NotPaused
+    status: "True"
+    type: kubevirt.io/virtual-machine-unpaused
+  - lastProbeTime: null
+    lastTransitionTime: "2025-08-15T03:03:08Z"
+    status: "True"
+    type: PodReadyToStartContainers
+  - lastProbeTime: null
+    lastTransitionTime: "2025-08-15T03:02:55Z"
+    status: "True"
+    type: Initialized
+  - lastProbeTime: null
+    lastTransitionTime: "2025-08-15T03:03:08Z"
+    status: "True"
+    type: Ready
+  - lastProbeTime: null
+    lastTransitionTime: "2025-08-15T03:03:08Z"
+    status: "True"
+    type: ContainersReady
+  - lastProbeTime: null
+    lastTransitionTime: "2025-08-15T03:02:54Z"
+    status: "True"
+    type: PodScheduled
+  containerStatuses:
+  - allocatedResources:
+      cpu: "65"
+      devices.kubevirt.io/kvm: "1"
+      devices.kubevirt.io/tun: "1"
+      devices.kubevirt.io/vhost-net: "1"
+      ephemeral-storage: 50M
+      hugepages-1Gi: 512Gi
+      memory: 56246Mi
+      nvidia.com/GH100_H100_NVSWITCH: "4"
+      nvidia.com/GH100_H100_SXM5_80GB: "8"
+      openshift.io/mlnx_connectx_7_dp_ib: "8"
+    containerID: containerd://97e20e4b88fa3e58c57c3b645d29084d9a983a2e4d39cb7c20913c8a8bb5f447
+    image: quay.io/kubevirt/virt-launcher:v1.4.0
+    imageID: quay.io/kubevirt/virt-launcher@sha256:18508d8767f8530df4d6aca4ffe467c40f9891fbe052548b3b2316f8bfb1bc38
+    lastState: {}
+    name: compute
+    ready: true
+    resources:
+      limits:
+        cpu: "65"
+        devices.kubevirt.io/kvm: "1"
+        devices.kubevirt.io/tun: "1"
+        devices.kubevirt.io/vhost-net: "1"
+        ephemeral-storage: "32262254720"
+        hugepages-1Gi: 512Gi
+        memory: 56246Mi
+        nvidia.com/GH100_H100_NVSWITCH: "4"
+        nvidia.com/GH100_H100_SXM5_80GB: "8"
+        openshift.io/mlnx_connectx_7_dp_ib: "8"
+      requests:
+        cpu: "65"
+        devices.kubevirt.io/kvm: "1"
+        devices.kubevirt.io/tun: "1"
+        devices.kubevirt.io/vhost-net: "1"
+        ephemeral-storage: 50M
+        hugepages-1Gi: 512Gi
+        memory: 56246Mi
+        nvidia.com/GH100_H100_NVSWITCH: "4"
+        nvidia.com/GH100_H100_SXM5_80GB: "8"
+        openshift.io/mlnx_connectx_7_dp_ib: "8"
+    restartCount: 0
+    started: true
+    state:
+      running:
+        startedAt: "2025-08-15T03:03:07Z"
+    user:
+      linux:
+        gid: 107
+        supplementalGroups:
+        - 107
+        uid: 107
+    volumeMounts:
+    - mountPath: /var/run/kubevirt-private
+      name: private
+    - mountPath: /var/run/kubevirt
+      name: public
+    - mountPath: /var/run/kubevirt-ephemeral-disks
+      name: ephemeral-disks
+    - mountPath: /var/run/kubevirt/container-disks
+      name: container-disks
+    - mountPath: /var/run/libvirt
+      name: libvirt-runtime
+    - mountPath: /var/run/kubevirt/sockets
+      name: sockets
+    - mountPath: /var/run/kubevirt-private/vmi-disks/containervolume
+      name: containervolume
+    - mountPath: /var/run/kubevirt-private/vmi-disks/scratch
+      name: scratch
+    - mountPath: /var/run/kubevirt-private/secret/cloudinitvolume/userdata
+      name: cloudinitvolume-udata
+      readOnly: true
+      recursiveReadOnly: Disabled
+    - mountPath: /var/run/kubevirt-private/secret/cloudinitvolume/userData
+      name: cloudinitvolume-udata
+      readOnly: true
+      recursiveReadOnly: Disabled
+    - mountPath: /var/run/kubevirt-hooks
+      name: hook-sidecar-sockets
+    - mountPath: /dev/hugepages
+      name: hugepages
+    - mountPath: /dev/hugepages/libvirt/qemu
+      name: hugetblfs-dir
+    - mountPath: /var/run/kubevirt/hotplug-disks
+      name: hotplug-disks
+    - mountPath: /etc/podinfo
+      name: network-info-annotation
+  - allocatedResources:
+      cpu: 15m
+      memory: 60M
+    containerID: containerd://e526ca887d152a084c08263c511dd18f1d02b71dfec1ad007f4821255401060b
+    image: quay.io/kubevirt/virt-launcher:v1.4.0
+    imageID: quay.io/kubevirt/virt-launcher@sha256:18508d8767f8530df4d6aca4ffe467c40f9891fbe052548b3b2316f8bfb1bc38
+    lastState: {}
+    name: guest-console-log
+    ready: true
+    resources:
+      limits:
+        cpu: 15m
+        memory: 60M
+      requests:
+        cpu: 15m
+        memory: 60M
+    restartCount: 0
+    started: true
+    state:
+      running:
+        startedAt: "2025-08-15T03:03:08Z"
+    user:
+      linux:
+        gid: 107
+        supplementalGroups:
+        - 107
+        uid: 107
+    volumeMounts:
+    - mountPath: /var/run/kubevirt-private
+      name: private
+      readOnly: true
+      recursiveReadOnly: Disabled
+  - allocatedResources:
+      cpu: 200m
+      memory: 64M
+    containerID: containerd://4b37959c9c547e03fb0de71d9933e1a2a2b93322a91f56a9c425bf0773039c77
+    image: public.ecr.aws/k6t4m3l7/kubevirt-sidecar:5616cac
+    imageID: public.ecr.aws/k6t4m3l7/kubevirt-sidecar@sha256:fb145d3e83575de0ade1a26a8fd8979b86b8177c5862ecd2dba5aa6da1b927da
+    lastState: {}
+    name: hook-sidecar-0
+    ready: true
+    resources:
+      limits:
+        cpu: 200m
+        memory: 62500Ki
+      requests:
+        cpu: 200m
+        memory: 64M
+    restartCount: 0
+    started: true
+    state:
+      running:
+        startedAt: "2025-08-15T03:03:08Z"
+    user:
+      linux:
+        gid: 107
+        supplementalGroups:
+        - 107
+        uid: 107
+    volumeMounts:
+    - mountPath: /var/run/kubevirt-hooks
+      name: hook-sidecar-sockets
+  hostIP: 10.49.5.7
+  hostIPs:
+  - ip: 10.49.5.7
+  phase: Running
+  podIP: 10.50.0.5
+  podIPs:
+  - ip: 10.50.0.5
+  qosClass: Guaranteed
+  startTime: "2025-08-15T03:02:55Z"

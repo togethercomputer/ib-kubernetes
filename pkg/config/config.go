@@ -15,6 +15,12 @@ type DaemonConfig struct {
 	Plugin string `env:"DAEMON_SM_PLUGIN"`
 	// Subnet manager plugins path
 	PluginPath string `env:"DAEMON_SM_PLUGIN_PATH" envDefault:"/plugins"`
+	// Default partition key for limited membership
+	DefaultLimitedPartition string `env:"DEFAULT_LIMITED_PARTITION"`
+	// Enable IP over IB functionality
+	EnableIPOverIB bool `env:"ENABLE_IP_OVER_IB" envDefault:"false"`
+	// Enable index0 for primary pkey GUID additions
+	EnableIndex0ForPrimaryPkey bool `env:"ENABLE_INDEX0_FOR_PRIMARY_PKEY" envDefault:"true"`
 }
 
 type GUIDPoolConfig struct {
@@ -27,6 +33,27 @@ type GUIDPoolConfig struct {
 func (dc *DaemonConfig) ReadConfig() error {
 	log.Debug().Msg("Reading configuration environment variables")
 	err := env.Parse(dc)
+
+	// If IP over IB enabled - log at startup
+	if dc.EnableIPOverIB {
+		log.Warn().Msg("New partitions will be created with IP over IB enabled.")
+	} else {
+		log.Info().Msg("New partitions will be created with IP over IB disabled.")
+	}
+
+	// If index0 for primary pkey enabled - log at startup
+	if dc.EnableIndex0ForPrimaryPkey {
+		log.Info().Msg("Primary pkey GUID additions will be created with index0 enabled.")
+	} else {
+		log.Info().Msg("Primary pkey GUID additions will be created with index0 disabled.")
+	}
+
+	// If default limited partition is set - log at startup
+	if dc.DefaultLimitedPartition != "" {
+		log.Info().Msgf("Default limited partition is set to %s. New GUIDs will be added as limited members to this partition.", dc.DefaultLimitedPartition)
+	} else {
+		log.Info().Msg("Default limited partition is not set.")
+	}
 
 	return err
 }

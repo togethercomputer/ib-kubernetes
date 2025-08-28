@@ -30,6 +30,7 @@ import (
 )
 
 const GUIDInUFMFinalizer = "ufm.together.ai/guid-cleanup-protection"
+const PodGUIDFinalizer = "ufm.together.ai/pod-guid-cleanup-protection"
 
 type Daemon interface {
 	// Execute Daemon loop, returns when os.Interrupt signal is received
@@ -107,6 +108,16 @@ func NewDaemon() (Daemon, error) {
 	smClient, err := getSmClientFunc()
 	if err != nil {
 		return nil, err
+	}
+
+	// Pass configuration from daemon to the plugin
+	pluginConfig := map[string]interface{}{
+		"ENABLE_IP_OVER_IB":                 daemonConfig.EnableIPOverIB,
+		"DEFAULT_LIMITED_PARTITION":         daemonConfig.DefaultLimitedPartition,
+		"ENABLE_INDEX0_FOR_PRIMARY_PKEY":    daemonConfig.EnableIndex0ForPrimaryPkey,
+	}
+	if err := smClient.SetConfig(pluginConfig); err != nil {
+		log.Warn().Msgf("Failed to set configuration on subnet manager plugin: %v", err)
 	}
 
 	// Try to validate if subnet manager is reachable in backoff loop
@@ -231,6 +242,144 @@ func getPodNetworkInfo(netName string, pod *kapi.Pod, netMap networksMap) (*podN
 		networks:  networks,
 		ibNetwork: network,
 	}, nil
+}
+
+// addPodFinalizer adds the GUID cleanup finalizer to a pod
+func (d *daemon) addPodFinalizer(pod *kapi.Pod) error {
+	return wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+		if err := d.kubeClient.AddFinalizerToPod(pod, PodGUIDFinalizer); err != nil {
+			log.Warn().Msgf("failed to add finalizer to pod %s/%s: %v",
+				pod.Namespace, pod.Name, err)
+			return false, nil
+		}
+		return true, nil
+	})
+}
+
+// removePodFinalizer removes the GUID cleanup finalizer from a pod
+func (d *daemon) removePodFinalizer(pod *kapi.Pod) error {
+	return wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+		if err := d.kubeClient.RemoveFinalizerFromPod(pod, PodGUIDFinalizer); err != nil {
+			log.Warn().Msgf("failed to remove finalizer from pod %s/%s: %v",
+				pod.Namespace, pod.Name, err)
+			return false, nil
+		}
+		return true, nil
+	})
+}
+
+// addNADFinalizer adds the GUID cleanup finalizer to a NetworkAttachmentDefinition
+func (d *daemon) addNADFinalizer(networkNamespace, networkName string) error {
+	return wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+		if err := d.kubeClient.AddFinalizerToNetworkAttachmentDefinition(
+			networkNamespace, networkName, GUIDInUFMFinalizer); err != nil {
+			log.Warn().Msgf("failed to add finalizer to NetworkAttachmentDefinition %s/%s: %v",
+				networkNamespace, networkName, err)
+			return false, nil
+		}
+		return true, nil
+	})
+}
+
+// removeNADFinalizerIfSafe removes the finalizer from NAD only if no pods are using the network
+func (d *daemon) removeNADFinalizerIfSafe(networkNamespace, networkName string) error {
+	podsUsingNetwork, err := d.checkIfAnyPodsUsingNetwork(networkNamespace, networkName)
+	if err != nil {
+		return fmt.Errorf("failed to check if pods are still using network %s/%s: %v",
+			networkNamespace, networkName, err)
+	}
+
+	if podsUsingNetwork {
+		log.Info().Msgf("NAD finalizer not removed from %s/%s - other pods still using this network",
+			networkNamespace, networkName)
+		return nil
+	}
+
+	return wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+		if err := d.kubeClient.RemoveFinalizerFromNetworkAttachmentDefinition(
+			networkNamespace, networkName, GUIDInUFMFinalizer); err != nil {
+			log.Warn().Msgf("failed to remove finalizer from NetworkAttachmentDefinition %s/%s: %v",
+				networkNamespace, networkName, err)
+			return false, nil
+		}
+		return true, nil
+	})
+}
+
+// addGUIDsToPKeyWithLimitedPartition adds GUIDs to both main pkey and limited partition if configured
+func (d *daemon) addGUIDsToPKeyWithLimitedPartition(pKey int, guidList []net.HardwareAddr) error {
+	// Add to main pKey
+	if err := wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+		if err := d.smClient.AddGuidsToPKey(pKey, guidList); err != nil {
+			log.Warn().Msgf("failed to config pKey with subnet manager %s with error : %v",
+				d.smClient.Name(), err)
+			return false, nil
+		}
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("failed to config pKey with subnet manager %s", d.smClient.Name())
+	}
+
+	// Add to limited partition if configured
+	if d.config.DefaultLimitedPartition != "" {
+		limitedPKey, err := utils.ParsePKey(d.config.DefaultLimitedPartition)
+		if err != nil {
+			log.Error().Msgf("failed to parse DEFAULT_LIMITED_PARTITION %s: %v", d.config.DefaultLimitedPartition, err)
+		} else {
+			if err := wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+				if err := d.smClient.AddGuidsToLimitedPKey(limitedPKey, guidList); err != nil {
+					log.Warn().Msgf("failed to add GUIDs to limited partition 0x%04X with subnet manager %s with error: %v",
+						limitedPKey, d.smClient.Name(), err)
+					return false, nil
+				}
+				return true, nil
+			}); err != nil {
+				log.Error().Msgf("failed to add GUIDs to limited partition 0x%04X with subnet manager %s", limitedPKey, d.smClient.Name())
+			} else {
+				log.Info().Msgf("successfully added GUIDs %v to limited partition 0x%04X", guidList, limitedPKey)
+			}
+		}
+	}
+
+	return nil
+}
+
+// removeGUIDsFromPKeyWithLimitedPartition removes GUIDs from both main pkey and limited partition if configured
+func (d *daemon) removeGUIDsFromPKeyWithLimitedPartition(pKey int, guidList []net.HardwareAddr) error {
+	// Remove from main pKey
+	if err := wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+		if err := d.smClient.RemoveGuidsFromPKey(pKey, guidList); err != nil {
+			log.Warn().Msgf("failed to remove guids from pKey 0x%04X with subnet manager %s with error: %v",
+				pKey, d.smClient.Name(), err)
+			return false, nil
+		}
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("failed to remove guids from pKey 0x%04X with subnet manager %s", pKey, d.smClient.Name())
+	}
+
+	// Remove from limited partition if configured
+	if d.config.DefaultLimitedPartition != "" {
+		limitedPKey, err := utils.ParsePKey(d.config.DefaultLimitedPartition)
+		if err != nil {
+			log.Error().Msgf("failed to parse DEFAULT_LIMITED_PARTITION %s: %v", d.config.DefaultLimitedPartition, err)
+		} else {
+			if err := wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+				if err := d.smClient.RemoveGuidsFromPKey(limitedPKey, guidList); err != nil {
+					log.Warn().Msgf("failed to remove GUIDs from limited partition 0x%04X with subnet manager %s with error: %v",
+						limitedPKey, d.smClient.Name(), err)
+					return false, nil
+				}
+				return true, nil
+			}); err != nil {
+				log.Error().Msgf("failed to remove GUIDs from limited partition 0x%04X with subnet manager %s", limitedPKey, d.smClient.Name())
+			} else {
+				log.Info().Msgf("successfully removed GUIDs %v from limited partition 0x%04X", guidList, limitedPKey)
+			}
+		}
+	}
+
+	return nil
 }
 
 // Verify if GUID already exist for given network ID and allocates new one if not
@@ -407,6 +556,15 @@ func (d *daemon) AddPeriodicUpdate() {
 				continue
 			}
 
+			// Add finalizer to pod since it now has a GUID that needs cleanup
+			if err = d.addPodFinalizer(pi.pod); err != nil {
+				log.Error().Msgf("failed to add finalizer to pod %s/%s: %v", pi.pod.Namespace, pi.pod.Name, err)
+				continue
+			} else {
+				log.Info().Msgf("added finalizer %s to pod %s/%s",
+					PodGUIDFinalizer, pi.pod.Namespace, pi.pod.Name)
+			}
+
 			guidList = append(guidList, pi.addr)
 			passedPods = append(passedPods, pi)
 		}
@@ -420,35 +578,20 @@ func (d *daemon) AddPeriodicUpdate() {
 				continue
 			}
 
-			// Try to add pKeys via subnet manager in backoff loop
-			if err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-				if err = d.smClient.AddGuidsToPKey(pKey, guidList); err != nil {
-					log.Warn().Msgf("failed to config pKey with subnet manager %s with error : %v",
-						d.smClient.Name(), err)
-					return false, nil
-				}
-				return true, nil
-			}); err != nil {
-				log.Error().Msgf("failed to config pKey with subnet manager %s", d.smClient.Name())
+			// Add GUIDs to pKeys (main and limited partition)
+			if err = d.addGUIDsToPKeyWithLimitedPartition(pKey, guidList); err != nil {
+				log.Error().Msgf("%v", err)
 				continue
+			}
+
+			// Add finalizer to NetworkAttachmentDefinition
+			networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
+			if err := d.addNADFinalizer(networkNamespace, networkName); err != nil {
+				log.Error().Msgf("failed to add finalizer to NetworkAttachmentDefinition %s/%s: %v",
+					networkNamespace, networkName, err)
 			} else {
-				// AddGuidsToPKey successful, add finalizer to NetworkAttachmentDefinition
-				networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
-				if err := wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-					if err := d.kubeClient.AddFinalizerToNetworkAttachmentDefinition(
-						networkNamespace, networkName, GUIDInUFMFinalizer); err != nil {
-						log.Warn().Msgf("failed to add finalizer to NetworkAttachmentDefinition %s/%s: %v",
-							networkNamespace, networkName, err)
-						return false, nil
-					}
-					return true, nil
-				}); err != nil {
-					log.Error().Msgf("failed to add finalizer to NetworkAttachmentDefinition %s/%s",
-						networkNamespace, networkName)
-				} else {
-					log.Info().Msgf("added finalizer %s to NetworkAttachmentDefinition %s/%s",
-						GUIDInUFMFinalizer, networkNamespace, networkName)
-				}
+				log.Info().Msgf("added finalizer %s to NetworkAttachmentDefinition %s/%s",
+					GUIDInUFMFinalizer, networkNamespace, networkName)
 			}
 		}
 
@@ -466,38 +609,14 @@ func (d *daemon) AddPeriodicUpdate() {
 			// Already check the parse above
 			pKey, _ := utils.ParsePKey(ibCniSpec.PKey)
 
-			// Try to remove pKeys via subnet manager in backoff loop
-			if err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-				if err = d.smClient.RemoveGuidsFromPKey(pKey, removedGUIDList); err != nil {
-					log.Warn().Msgf("failed to remove guids of removed pods from pKey %s"+
-						" with subnet manager %s with error: %v", ibCniSpec.PKey,
-						d.smClient.Name(), err)
-					return false, nil
-				}
-				return true, nil
-			}); err != nil {
-				log.Warn().Msgf("failed to remove guids of removed pods from pKey %s"+
-					" with subnet manager %s", ibCniSpec.PKey, d.smClient.Name())
+			// Remove GUIDs from pKeys (main and limited partition)
+			if err = d.removeGUIDsFromPKeyWithLimitedPartition(pKey, removedGUIDList); err != nil {
+				log.Warn().Msgf("%v", err)
 				continue
-			} else {
-				// RemoveGuidsFromPKey successful, remove finalizer from NetworkAttachmentDefinition
-				networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
-				if err := wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-					if err := d.kubeClient.RemoveFinalizerFromNetworkAttachmentDefinition(
-						networkNamespace, networkName, GUIDInUFMFinalizer); err != nil {
-						log.Warn().Msgf("failed to remove finalizer from NetworkAttachmentDefinition %s/%s: %v",
-							networkNamespace, networkName, err)
-						return false, nil
-					}
-					return true, nil
-				}); err != nil {
-					log.Error().Msgf("failed to remove finalizer from NetworkAttachmentDefinition %s/%s",
-						networkNamespace, networkName)
-				} else {
-					log.Info().Msgf("removed finalizer %s from NetworkAttachmentDefinition %s/%s",
-						GUIDInUFMFinalizer, networkNamespace, networkName)
-				}
 			}
+
+			// Note: NAD finalizer is not removed here during pod addition
+			// It will only be removed during pod deletion when all pods using this NAD are cleaned up
 		}
 
 		addMap.UnSafeRemove(networkID)
@@ -562,6 +681,7 @@ func (d *daemon) DeletePeriodicUpdate() {
 		}
 
 		var guidList []net.HardwareAddr
+		var podGUIDMap = make(map[string]*kapi.Pod) // maps GUID string to pod
 		var guidAddr net.HardwareAddr
 		for _, pod := range pods {
 			log.Debug().Msgf("pod namespace %s name %s", pod.Namespace, pod.Name)
@@ -572,6 +692,7 @@ func (d *daemon) DeletePeriodicUpdate() {
 			}
 
 			guidList = append(guidList, guidAddr)
+			podGUIDMap[guidAddr.String()] = pod
 		}
 
 		if ibCniSpec.PKey != "" && len(guidList) != 0 {
@@ -581,37 +702,19 @@ func (d *daemon) DeletePeriodicUpdate() {
 				continue
 			}
 
-			// Try to remove pKeys via subnet manager on backoff loop
-			if err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-				if err = d.smClient.RemoveGuidsFromPKey(pKey, guidList); err != nil {
-					log.Warn().Msgf("failed to remove guids of removed pods from pKey %s"+
-						" with subnet manager %s with error: %v", ibCniSpec.PKey,
-						d.smClient.Name(), err)
-					return false, nil
-				}
-				return true, nil
-			}); err != nil {
-				log.Warn().Msgf("failed to remove guids of removed pods from pKey %s"+
-					" with subnet manager %s", ibCniSpec.PKey, d.smClient.Name())
+			// Remove GUIDs from pKeys (main and limited partition)
+			if err = d.removeGUIDsFromPKeyWithLimitedPartition(pKey, guidList); err != nil {
+				log.Warn().Msgf("%v", err)
 				continue
+			}
+
+			// Check if NAD finalizer can be safely removed
+			networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
+			if err := d.removeNADFinalizerIfSafe(networkNamespace, networkName); err != nil {
+				log.Error().Msgf("failed to remove NAD finalizer for %s/%s: %v", networkNamespace, networkName, err)
 			} else {
-				// RemoveGuidsFromPKey successful, remove finalizer from NetworkAttachmentDefinition
-				networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
-				if err := wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-					if err := d.kubeClient.RemoveFinalizerFromNetworkAttachmentDefinition(
-						networkNamespace, networkName, GUIDInUFMFinalizer); err != nil {
-						log.Warn().Msgf("failed to remove finalizer from NetworkAttachmentDefinition %s/%s: %v",
-							networkNamespace, networkName, err)
-						return false, nil
-					}
-					return true, nil
-				}); err != nil {
-					log.Error().Msgf("failed to remove finalizer from NetworkAttachmentDefinition %s/%s",
-						networkNamespace, networkName)
-				} else {
-					log.Info().Msgf("removed finalizer %s from NetworkAttachmentDefinition %s/%s",
-						GUIDInUFMFinalizer, networkNamespace, networkName)
-				}
+				log.Info().Msgf("checked and potentially removed finalizer %s from NetworkAttachmentDefinition %s/%s",
+					GUIDInUFMFinalizer, networkNamespace, networkName)
 			}
 		}
 
@@ -622,6 +725,16 @@ func (d *daemon) DeletePeriodicUpdate() {
 			}
 
 			delete(d.guidPodNetworkMap, guidAddr.String())
+
+			// Remove finalizer from pod after successfully cleaning up GUID
+			if pod, exists := podGUIDMap[guidAddr.String()]; exists {
+				if err = d.removePodFinalizer(pod); err != nil {
+					log.Error().Msgf("failed to remove finalizer from pod %s/%s: %v", pod.Namespace, pod.Name, err)
+				} else {
+					log.Info().Msgf("removed finalizer %s from pod %s/%s",
+						PodGUIDFinalizer, pod.Namespace, pod.Name)
+				}
+			}
 		}
 		deleteMap.UnSafeRemove(networkID)
 	}
@@ -685,4 +798,44 @@ func (d *daemon) initPool() error {
 	}
 
 	return nil
+}
+
+// checkIfAnyPodsUsingNetwork checks if there are any pods still using the given network
+func (d *daemon) checkIfAnyPodsUsingNetwork(networkNamespace, networkName string) (bool, error) {
+	pods, err := d.kubeClient.GetPods(kapi.NamespaceAll)
+	if err != nil {
+		return false, fmt.Errorf("failed to get pods: %v", err)
+	}
+
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+
+		// Skip pods that are being deleted (have deletion timestamp)
+		if pod.DeletionTimestamp != nil {
+			continue
+		}
+
+		if !utils.HasNetworkAttachmentAnnot(pod) {
+			continue
+		}
+
+		networks, err := netAttUtils.ParsePodNetworkAnnotation(pod)
+		if err != nil {
+			continue
+		}
+
+		for _, network := range networks {
+			// Check if this pod uses the network we're checking
+			if network.Namespace == networkNamespace && network.Name == networkName {
+				// Check if this network is configured with InfiniBand and has a GUID
+				if utils.IsPodNetworkConfiguredWithInfiniBand(network) && utils.PodNetworkHasGUID(network) {
+					log.Debug().Msgf("Found pod %s/%s still using network %s/%s",
+						pod.Namespace, pod.Name, networkNamespace, networkName)
+					return true, nil
+				}
+			}
+		}
+	}
+
+	return false, nil
 }

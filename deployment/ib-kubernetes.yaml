@@ -151,3 +151,21 @@ spec:
                   name: ib-kubernetes-ufm-secret
                   key: UFM_CERTIFICATE
                   optional: true
+            - name: ENABLE_IP_OVER_IB # add
+              valueFrom:
+                configMapKeyRef:
+                  key: ENABLE_IP_OVER_IB
+                  name: ib-kubernetes-config
+                  optional: true
+            - name: DEFAULT_LIMITED_PARTITION # add
+              valueFrom:
+                configMapKeyRef:
+                  key: DEFAULT_LIMITED_PARTITION
+                  name: ib-kubernetes-config
+                  optional: true
+            - name: ENABLE_INDEX0_FOR_PRIMARY_PKEY # add
+              valueFrom:
+                configMapKeyRef:
+                  key: ENABLE_INDEX0_FOR_PRIMARY_PKEY
+                  name: ib-kubernetes-config
+                  optional: true

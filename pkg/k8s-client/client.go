@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	netapi "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	netclient "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned/typed/k8s.cni.cncf.io/v1"
@@ -11,6 +12,7 @@ import (
 	kapi "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -24,12 +26,16 @@ type Client interface {
 	GetRestClient() rest.Interface
 	AddFinalizerToNetworkAttachmentDefinition(namespace, name, finalizer string) error
 	RemoveFinalizerFromNetworkAttachmentDefinition(namespace, name, finalizer string) error
+	AddFinalizerToPod(pod *kapi.Pod, finalizer string) error
+	RemoveFinalizerFromPod(pod *kapi.Pod, finalizer string) error
 }
 
 type client struct {
 	clientset kubernetes.Interface
 	netClient netclient.K8sCniCncfIoV1Interface
 }
+
+var backoffValues = wait.Backoff{Duration: 1 * time.Second, Factor: 1.6, Jitter: 0.1, Steps: 6}
 
 // NewK8sClient returns a kubernetes client
 func NewK8sClient() (Client, error) {
@@ -152,5 +158,70 @@ func (c *client) RemoveFinalizerFromNetworkAttachmentDefinition(namespace, name,
 	// Update the NetworkAttachmentDefinition
 	_, err = c.netClient.NetworkAttachmentDefinitions(namespace).Update(
 		context.Background(), netAttDef, metav1.UpdateOptions{})
+	return err
+}
+
+// AddFinalizerToPod adds a finalizer to a Pod
+func (c *client) AddFinalizerToPod(pod *kapi.Pod, finalizer string) error {
+	// Get the latest version of the pod
+	currentPod, err := c.clientset.CoreV1().Pods(pod.Namespace).Get(
+		context.Background(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	// Check if finalizer already exists
+	for _, existingFinalizer := range currentPod.Finalizers {
+		if existingFinalizer == finalizer {
+			return nil // Finalizer already exists, nothing to do
+		}
+	}
+
+	// Add the finalizer
+	currentPod.Finalizers = append(currentPod.Finalizers, finalizer)
+
+	// Update the Pod with retry and backoff
+	err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+		_, err = c.clientset.CoreV1().Pods(pod.Namespace).Update(
+			context.Background(), currentPod, metav1.UpdateOptions{})
+		return err == nil, nil
+	})
+	return err
+}
+
+// RemoveFinalizerFromPod removes a finalizer from a Pod
+func (c *client) RemoveFinalizerFromPod(pod *kapi.Pod, finalizer string) error {
+	// Get the latest version of the pod
+	currentPod, err := c.clientset.CoreV1().Pods(pod.Namespace).Get(
+		context.Background(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	// Check if finalizer exists and remove it
+	var found bool
+	var updatedFinalizers []string
+	for _, existingFinalizer := range currentPod.Finalizers {
+		if existingFinalizer != finalizer {
+			updatedFinalizers = append(updatedFinalizers, existingFinalizer)
+		} else {
+			found = true
+		}
+	}
+
+	// If finalizer wasn't found, nothing to do
+	if !found {
+		return nil
+	}
+
+	// Update finalizers
+	currentPod.Finalizers = updatedFinalizers
+
+	// Update the Pod with retry and backoff
+	err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+		_, err = c.clientset.CoreV1().Pods(pod.Namespace).Update(
+			context.Background(), currentPod, metav1.UpdateOptions{})
+		return err == nil, nil
+	})
 	return err
 }

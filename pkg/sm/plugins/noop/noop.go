@@ -43,6 +43,11 @@ func (p *plugin) AddGuidsToPKey(pkey int, guids []net.HardwareAddr) error {
 	return nil
 }
 
+func (p *plugin) AddGuidsToLimitedPKey(pkey int, guids []net.HardwareAddr) error {
+	log.Info().Msg("noop Plugin AddGuidsToLimitedPKey()")
+	return nil
+}
+
 func (p *plugin) RemoveGuidsFromPKey(pkey int, guids []net.HardwareAddr) error {
 	log.Info().Msg("noop Plugin RemovePKey()")
 	return nil
@@ -51,6 +56,12 @@ func (p *plugin) RemoveGuidsFromPKey(pkey int, guids []net.HardwareAddr) error {
 func (p *plugin) ListGuidsInUse() ([]string, error) {
 	log.Info().Msg("noop Plugin ListGuidsInUse()")
 	return nil, nil
+}
+
+// SetConfig allows the daemon to pass configuration to the plugin
+func (p *plugin) SetConfig(config map[string]interface{}) error {
+	log.Info().Msg("noop Plugin SetConfig()")
+	return nil
 }
 
 // Initialize applies configs to plugin and return a subnet manager client

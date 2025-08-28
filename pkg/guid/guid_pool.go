@@ -75,6 +75,18 @@ func (p *guidPool) Reset(guids []string) error {
 			// Out of range GUID may be expected and shouldn't be allocated in the pool
 			continue
 		}
+		
+		guidAddr, err := ParseGUID(guid)
+		if err != nil {
+			log.Debug().Msgf("error parsing GUID: %s: %v", guid, err)
+			return err
+		}
+		
+		// Check if GUID is already allocated in the pool, if so skip it
+		if _, exist := p.guidPoolMap[guidAddr]; exist {
+			continue
+		}
+		
 		err = p.AllocateGUID(guid)
 		if err != nil {
 			log.Debug().Msgf("error resetting the pool with value: %s: %v", guid, err)

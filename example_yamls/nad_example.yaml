@@ -1,0 +1,30 @@
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  annotations:
+    k8s.v1.cni.cncf.io/resourceName: openshift.io/mlnx_connectx_7_dp_ib
+  creationTimestamp: "2025-08-15T02:49:29Z"
+  finalizers:
+  - ufm.together.ai/guid-cleanup-protection
+  generation: 1
+  name: test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-1
+  namespace: test-yaron-with-partitions
+  resourceVersion: "120784040"
+  uid: bfc1fe50-2950-43b3-84d4-2e5a03b28dd0
+spec:
+  config: |-
+    {
+        "cniVersion": "1.0.0",
+        "name": "test-yaron-with-partitions-gpu-dp-mlnx-hca-ib-net-1",
+        "type": "ib-sriov",
+        "capabilities": {
+            "infinibandGUID": true,
+            "ips": true
+        },
+        "pkey": "0x0040",
+        "link_state": "enable",
+        "ipam": {
+            "type": "whereabouts",
+            "range": "172.20.128.0/17"
+        }
+    }
