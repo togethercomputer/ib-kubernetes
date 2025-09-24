@@ -140,8 +140,9 @@ test-race:    GOFLAGS=-race         ## Run tests with race detector
 $(TEST_TARGETS): NAME=$(MAKECMDGOALS:test-%=%)
 $(TEST_TARGETS): test
 
-test: | plugins; $(info  running $(NAME:%=% )tests...) @ ## Run tests
-	$Q $(GO) test $(GOFLAGS) -timeout $(TIMEOUT)s $(ARGS) ./...
+LOCALBIN ?= $(shell pwd)/bin
+test: | envtest plugins; $(info  running $(NAME:%=% )tests...) @ ## Run tests
+	$Q KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GO) test $(GOFLAGS) -timeout $(TIMEOUT)s $(ARGS) ./...
 
 .PHONY: test-coverage
 test-coverage: | plugins-coverage envtest gocovmerge gcov2lcov ## Run coverage tests
