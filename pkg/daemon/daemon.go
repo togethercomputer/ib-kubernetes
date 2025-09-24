@@ -112,9 +112,9 @@ func NewDaemon() (Daemon, error) {
 
 	// Pass configuration from daemon to the plugin
 	pluginConfig := map[string]interface{}{
-		"ENABLE_IP_OVER_IB":                 daemonConfig.EnableIPOverIB,
-		"DEFAULT_LIMITED_PARTITION":         daemonConfig.DefaultLimitedPartition,
-		"ENABLE_INDEX0_FOR_PRIMARY_PKEY":    daemonConfig.EnableIndex0ForPrimaryPkey,
+		"ENABLE_IP_OVER_IB":              daemonConfig.EnableIPOverIB,
+		"DEFAULT_LIMITED_PARTITION":      daemonConfig.DefaultLimitedPartition,
+		"ENABLE_INDEX0_FOR_PRIMARY_PKEY": daemonConfig.EnableIndex0ForPrimaryPkey,
 	}
 	if err := smClient.SetConfig(pluginConfig); err != nil {
 		log.Warn().Msgf("Failed to set configuration on subnet manager plugin: %v", err)
@@ -206,6 +206,14 @@ func (d *daemon) getIbSriovNetwork(networkID string) (string, *utils.IbSriovCniS
 	}
 	log.Debug().Msgf("networkName attachment %v", netAttInfo)
 
+	// Check if this network's resource is managed by this daemon
+	resourceName := netAttInfo.Annotations["k8s.v1.cni.cncf.io/resourceName"]
+	if resourceName == "" || !d.config.IsManagedResource(resourceName) {
+		// TODO(Nik) dev qol, check if someone else manages this resource or if it is orphan
+		// checkResourceOwner(networkNamespace, networkName)
+		return "", nil, fmt.Errorf("network %s uses resource %s which is not managed by this daemon", networkName, resourceName)
+	}
+
 	networkSpec := make(map[string]interface{})
 	err = json.Unmarshal([]byte(netAttInfo.Spec.Config), &networkSpec)
 	if err != nil {
@@ -245,9 +253,10 @@ func getPodNetworkInfo(netName string, pod *kapi.Pod, netMap networksMap) (*podN
 }
 
 // addPodFinalizer adds the GUID cleanup finalizer to a pod
-func (d *daemon) addPodFinalizer(pod *kapi.Pod) error {
+func (d *daemon) addPodFinalizer(pod *kapi.Pod, networkName string) error {
 	return wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-		if err := d.kubeClient.AddFinalizerToPod(pod, PodGUIDFinalizer); err != nil {
+		podFinalizer := fmt.Sprintf("%s-%s", PodGUIDFinalizer, networkName)
+		if err := d.kubeClient.AddFinalizerToPod(pod, podFinalizer); err != nil {
 			log.Warn().Msgf("failed to add finalizer to pod %s/%s: %v",
 				pod.Namespace, pod.Name, err)
 			return false, nil
@@ -257,9 +266,10 @@ func (d *daemon) addPodFinalizer(pod *kapi.Pod) error {
 }
 
 // removePodFinalizer removes the GUID cleanup finalizer from a pod
-func (d *daemon) removePodFinalizer(pod *kapi.Pod) error {
+func (d *daemon) removePodFinalizer(pod *kapi.Pod, networkName string) error {
 	return wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-		if err := d.kubeClient.RemoveFinalizerFromPod(pod, PodGUIDFinalizer); err != nil {
+		podFinalizer := fmt.Sprintf("%s-%s", PodGUIDFinalizer, networkName)
+		if err := d.kubeClient.RemoveFinalizerFromPod(pod, podFinalizer); err != nil {
 			log.Warn().Msgf("failed to remove finalizer from pod %s/%s: %v",
 				pod.Namespace, pod.Name, err)
 			return false, nil
@@ -557,7 +567,7 @@ func (d *daemon) AddPeriodicUpdate() {
 			}
 
 			// Add finalizer to pod since it now has a GUID that needs cleanup
-			if err = d.addPodFinalizer(pi.pod); err != nil {
+			if err = d.addPodFinalizer(pi.pod, networkName); err != nil {
 				log.Error().Msgf("failed to add finalizer to pod %s/%s: %v", pi.pod.Namespace, pi.pod.Name, err)
 				continue
 			} else {
@@ -728,7 +738,7 @@ func (d *daemon) DeletePeriodicUpdate() {
 
 			// Remove finalizer from pod after successfully cleaning up GUID
 			if pod, exists := podGUIDMap[guidAddr.String()]; exists {
-				if err = d.removePodFinalizer(pod); err != nil {
+				if err = d.removePodFinalizer(pod, networkName); err != nil {
 					log.Error().Msgf("failed to remove finalizer from pod %s/%s: %v", pod.Namespace, pod.Name, err)
 				} else {
 					log.Info().Msgf("removed finalizer %s from pod %s/%s",
