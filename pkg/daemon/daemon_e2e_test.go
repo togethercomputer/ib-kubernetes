@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -457,6 +456,15 @@ func (c *testK8sClient) GetPods(namespace string) (*corev1.PodList, error) {
 	return podList, err
 }
 
+func (c *testK8sClient) GetPod(namespace, name string) (*corev1.Pod, error) {
+	pod := &corev1.Pod{}
+	key := client.ObjectKey{Namespace: namespace, Name: name}
+	if err := c.client.Get(ctx, key, pod); err != nil {
+		return nil, err
+	}
+	return pod, nil
+}
+
 func (c *testK8sClient) SetAnnotationsOnPod(pod *corev1.Pod, annotations map[string]string) error {
 	pod.Annotations = annotations
 	return c.client.Update(ctx, pod)
@@ -532,10 +540,4 @@ func (c *testK8sClient) GetRestClient() rest.Interface {
 		panic(fmt.Sprintf("Failed to create kubernetes clientset: %v", err))
 	}
 	return clientset.CoreV1().RESTClient()
-}
-
-func (c *testK8sClient) PatchPod(pod *corev1.Pod, patchType types.PatchType, patchData []byte) error {
-	// Use controller-runtime client patch
-	patch := client.RawPatch(patchType, patchData)
-	return c.client.Patch(ctx, pod, patch)
 }

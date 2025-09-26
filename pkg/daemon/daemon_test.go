@@ -209,7 +209,8 @@ var _ = Describe("Daemon Finalizer Tests", func() {
 				kubeClient.On("AddFinalizerToNetworkAttachmentDefinition", "default", "ib-network2", GUIDInUFMFinalizer).Return(nil)
 
 				// Mock pod annotation updates
-				kubeClient.On("SetAnnotationsOnPod", testPod, mock.AnythingOfType("map[string]string")).Return(nil)
+				kubeClient.On("GetPod", testPod.Namespace, testPod.Name).Return(testPod, nil)
+				kubeClient.On("SetAnnotationsOnPod", mock.AnythingOfType("*v1.Pod"), mock.AnythingOfType("map[string]string")).Return(nil)
 
 				// Mock SM client calls
 				smClient.On("AddGuidsToPKey", 1, mock.AnythingOfType("[]net.HardwareAddr")).Return(nil)

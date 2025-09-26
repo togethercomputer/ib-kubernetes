@@ -209,8 +209,7 @@ func (d *daemon) getIbSriovNetwork(networkID string) (string, *utils.IbSriovCniS
 	// Check if this network's resource is managed by this daemon
 	resourceName := netAttInfo.Annotations["k8s.v1.cni.cncf.io/resourceName"]
 	if resourceName == "" || !d.config.IsManagedResource(resourceName) {
-		// TODO(Nik) dev qol, check if someone else manages this resource or if it is orphan
-		// checkResourceOwner(networkNamespace, networkName)
+		// TODO(Nik) qol, check if someone else manages this resource or if it is orphan
 		return "", nil, fmt.Errorf("network %s uses resource %s which is not managed by this daemon", networkName, resourceName)
 	}
 
@@ -254,8 +253,8 @@ func getPodNetworkInfo(netName string, pod *kapi.Pod, netMap networksMap) (*podN
 
 // addPodFinalizer adds the GUID cleanup finalizer to a pod
 func (d *daemon) addPodFinalizer(pod *kapi.Pod, networkName string) error {
+	podFinalizer := fmt.Sprintf("%s-%s", PodGUIDFinalizer, networkName)
 	return wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-		podFinalizer := fmt.Sprintf("%s-%s", PodGUIDFinalizer, networkName)
 		if err := d.kubeClient.AddFinalizerToPod(pod, podFinalizer); err != nil {
 			log.Warn().Msgf("failed to add finalizer to pod %s/%s: %v",
 				pod.Namespace, pod.Name, err)
@@ -267,8 +266,8 @@ func (d *daemon) addPodFinalizer(pod *kapi.Pod, networkName string) error {
 
 // removePodFinalizer removes the GUID cleanup finalizer from a pod
 func (d *daemon) removePodFinalizer(pod *kapi.Pod, networkName string) error {
+	podFinalizer := fmt.Sprintf("%s-%s", PodGUIDFinalizer, networkName)
 	return wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-		podFinalizer := fmt.Sprintf("%s-%s", PodGUIDFinalizer, networkName)
 		if err := d.kubeClient.RemoveFinalizerFromPod(pod, podFinalizer); err != nil {
 			log.Warn().Msgf("failed to remove finalizer from pod %s/%s: %v",
 				pod.Namespace, pod.Name, err)
@@ -480,44 +479,102 @@ func syncGUIDPool(smClient plugins.SubnetManagerClient, guidPool guid.Pool) erro
 
 // Update and set Pod's network annotation.
 // If failed to update annotation, pod's GUID added into the list to be removed from Pkey.
-func (d *daemon) updatePodNetworkAnnotation(pi *podNetworkInfo, removedList *[]net.HardwareAddr) error {
+func (d *daemon) updatePodNetworkAnnotation(pi *podNetworkInfo, removedList *[]net.HardwareAddr) {
 	if pi.ibNetwork.CNIArgs == nil {
 		pi.ibNetwork.CNIArgs = &map[string]interface{}{}
 	}
 
 	(*pi.ibNetwork.CNIArgs)[utils.InfiniBandAnnotation] = utils.ConfiguredInfiniBandPod
-	netAnnotations, err := json.Marshal(pi.networks)
-	if err != nil {
-		return fmt.Errorf("failed to dump networks %+v of pod into json with error: %v", pi.networks, err)
-	}
-
-	pi.pod.Annotations[v1.NetworkAttachmentAnnot] = string(netAnnotations)
 
 	// Try to set pod's annotations in backoff loop
-	if err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-		log.Info().Msgf("updatePodNetworkAnnotation(): Updating pod annotation for pod: %s with anootation: %s", pi.pod.Name, pi.pod.Annotations)
+	if err := wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+
+		// Get latest annotations state to avoid conflicts
+		latestPodAnnotations, networks, err := d.getLatestPodAnnotations(pi.pod)
+		if err != nil {
+			log.Warn().Msgf("failed to get latest pod annotations for %s/%s: %v", pi.pod.Namespace, pi.pod.Name, err)
+			return false, nil
+		}
+
+		targetNetwork, err := utils.GetPodNetwork(networks, pi.ibNetwork.Name)
+		if err != nil {
+			return false, fmt.Errorf("failed to locate network %s in pod %s/%s annotations: %v", pi.ibNetwork.Name, pi.pod.Namespace, pi.pod.Name, err)
+		}
+
+		err = updateInfiniBandNetwork(targetNetwork, pi.ibNetwork)
+		if err != nil {
+			return false, fmt.Errorf("failed to update infiniband network for pod %s/%s: %v", pi.pod.Namespace, pi.pod.Name, err)
+		}
+
+		netAnnotations, err := json.Marshal(networks)
+		if err != nil {
+			return false, fmt.Errorf("failed to marshal updated networks for pod %s/%s: %v", pi.pod.Namespace, pi.pod.Name, err)
+		}
+
+		if latestPodAnnotations == nil {
+			return false, fmt.Errorf("latestPodAnnotations is nil for pod %s/%s", pi.pod.Namespace, pi.pod.Name)
+		}
+
+		latestPodAnnotations[v1.NetworkAttachmentAnnot] = string(netAnnotations)
+		pi.pod.Annotations = latestPodAnnotations
+
+		log.Info().Msgf("updatePodNetworkAnnotation(): Updating pod annotation for pod: %s/%s", pi.pod.Namespace, pi.pod.Name)
 		if err = d.kubeClient.SetAnnotationsOnPod(pi.pod, pi.pod.Annotations); err != nil {
 			if kerrors.IsNotFound(err) {
 				return false, err
 			}
-			log.Warn().Msgf("failed to update pod annotations with err: %v", err)
+			if kerrors.IsConflict(err) {
+				log.Warn().Msgf("conflict while updating pod annotations for %s/%s, will retry", pi.pod.Namespace, pi.pod.Name)
+				return false, nil
+			}
+			log.Warn().Msgf("failed to update pod annotations for %s/%s with err: %v", pi.pod.Namespace, pi.pod.Name, err)
 			return false, nil
 		}
-		log.Info().Msgf("updatePodNetworkAnnotation(): Success on updating pod annotation for pod: %s with anootation: %s", pi.pod.Name, pi.pod.Annotations)
+
+		log.Info().Msgf("updatePodNetworkAnnotation(): Success on updating pod annotation for pod: %s/%s with annotations: %s", pi.pod.Namespace, pi.pod.Name, pi.pod.Annotations)
 		return true, nil
 	}); err != nil {
-		log.Error().Msgf("failed to update pod annotations")
+		log.Error().Msgf("failed to update pod annotations for %s/%s with error: %v", pi.pod.Namespace, pi.pod.Name, err)
 
 		if err = d.guidPool.ReleaseGUID(pi.addr.String()); err != nil {
-			log.Warn().Msgf("failed to release guid \"%s\" from removed pod \"%s\" in namespace "+
-				"\"%s\" with error: %v", pi.addr.String(), pi.pod.Name, pi.pod.Namespace, err)
+			log.Warn().Msgf("failed to release guid \"%s\" from removed pod \"%s\" in namespace \"%s\" with error: %v", pi.addr.String(), pi.pod.Name, pi.pod.Namespace, err)
 		} else {
 			delete(d.guidPodNetworkMap, pi.addr.String())
 		}
 
 		*removedList = append(*removedList, pi.addr)
 	}
+}
 
+// Retrieves the latest annotations for a pod and returns the annotations and the pod networks.
+func (d *daemon) getLatestPodAnnotations(pod *kapi.Pod) (map[string]string, []*v1.NetworkSelectionElement, error) {
+	latestPod, err := d.kubeClient.GetPod(pod.Namespace, pod.Name)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	networks, err := netAttUtils.ParsePodNetworkAnnotation(latestPod)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return latestPod.Annotations, networks, nil
+}
+
+// Replaces target network with source network, erroring if source is already configured.
+func updateInfiniBandNetwork(target *v1.NetworkSelectionElement, source *v1.NetworkSelectionElement) error {
+	if target == nil || source == nil {
+		return fmt.Errorf("target or source network is nil")
+	}
+
+	if target.CNIArgs != nil {
+		if (*target.CNIArgs)[utils.InfiniBandAnnotation] == utils.ConfiguredInfiniBandPod {
+			return fmt.Errorf("target network is already configured")
+		}
+	}
+
+	target.InfinibandGUIDRequest = source.InfinibandGUIDRequest
+	target.CNIArgs = source.CNIArgs
 	return nil
 }
 
@@ -609,10 +666,7 @@ func (d *daemon) AddPeriodicUpdate() {
 		var removedGUIDList []net.HardwareAddr
 		for _, pi := range passedPods {
 			log.Info().Msgf("Updating annotations for the pod %s, network %s", pi.pod.Name, pi.ibNetwork.Name)
-			err = d.updatePodNetworkAnnotation(pi, &removedGUIDList)
-			if err != nil {
-				log.Error().Msgf("%v", err)
-			}
+			d.updatePodNetworkAnnotation(pi, &removedGUIDList)
 		}
 
 		if ibCniSpec.PKey != "" && len(removedGUIDList) != 0 {
