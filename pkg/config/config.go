@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/rs/zerolog/log"
@@ -21,6 +22,9 @@ type DaemonConfig struct {
 	EnableIPOverIB bool `env:"ENABLE_IP_OVER_IB" envDefault:"false"`
 	// Enable index0 for primary pkey GUID additions
 	EnableIndex0ForPrimaryPkey bool `env:"ENABLE_INDEX0_FOR_PRIMARY_PKEY" envDefault:"true"`
+	// Managed resource names
+	ManagedResourcesString string `env:"MANAGED_RESOURCE_NAMES"`
+	ManagedResources       map[string]bool
 }
 
 type GUIDPoolConfig struct {
@@ -55,6 +59,17 @@ func (dc *DaemonConfig) ReadConfig() error {
 		log.Info().Msg("Default limited partition is not set.")
 	}
 
+	// If managed resource names is set - log at startup
+	log.Info().Msgf("ib-kubernetes will manage the following resources: %s.", dc.ManagedResourcesString)
+	// Parse the managed resource names string into a set
+	dc.ManagedResources = make(map[string]bool)
+	for _, resource := range strings.Split(dc.ManagedResourcesString, ",") {
+		if resource == "" {
+			continue
+		}
+		dc.ManagedResources[resource] = true
+	}
+
 	return err
 }
 
@@ -67,5 +82,14 @@ func (dc *DaemonConfig) ValidateConfig() error {
 	if dc.Plugin == "" {
 		return fmt.Errorf("no plugin selected")
 	}
+
+	if len(dc.ManagedResources) == 0 {
+		return fmt.Errorf("no managed resources names were provided")
+	}
 	return nil
+}
+
+func (dc *DaemonConfig) IsManagedResource(resourceName string) bool {
+	_, ok := dc.ManagedResources[resourceName]
+	return ok
 }

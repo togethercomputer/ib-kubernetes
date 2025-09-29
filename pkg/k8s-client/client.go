@@ -2,8 +2,8 @@ package k8sclient
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	netapi "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
@@ -11,7 +11,6 @@ import (
 	"github.com/rs/zerolog/log"
 	kapi "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -20,8 +19,8 @@ import (
 
 type Client interface {
 	GetPods(namespace string) (*kapi.PodList, error)
+	GetPod(namespace, name string) (*kapi.Pod, error)
 	SetAnnotationsOnPod(pod *kapi.Pod, annotations map[string]string) error
-	PatchPod(pod *kapi.Pod, patchType types.PatchType, patchData []byte) error
 	GetNetworkAttachmentDefinition(namespace, name string) (*netapi.NetworkAttachmentDefinition, error)
 	GetRestClient() rest.Interface
 	AddFinalizerToNetworkAttachmentDefinition(namespace, name, finalizer string) error
@@ -65,33 +64,38 @@ func (c *client) GetPods(namespace string) (*kapi.PodList, error) {
 	return c.clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
 }
 
+// GetPod obtains a single Pod resource from the kubernetes api server
+func (c *client) GetPod(namespace, name string) (*kapi.Pod, error) {
+	log.Debug().Msgf("getting pod namespace: %s, name: %s", namespace, name)
+	return c.clientset.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+}
+
 // SetAnnotationsOnPod takes the pod object and map of key/value string pairs to set as annotations
 func (c *client) SetAnnotationsOnPod(pod *kapi.Pod, annotations map[string]string) error {
 	log.Info().Msgf("Setting annotation on pod, namespace: %s, podName: %s, annotations: %v",
 		pod.Namespace, pod.Name, annotations)
-	var err error
-	var patchData []byte
-	patch := struct {
-		Metadata map[string]interface{} `json:"metadata"`
-	}{
-		Metadata: map[string]interface{}{
-			"annotations": annotations,
-		},
-	}
 
-	podDesc := pod.Namespace + "/" + pod.Name
-	patchData, err = json.Marshal(&patch)
+	// Get the latest version of the pod
+	currentPod, err := c.clientset.CoreV1().Pods(pod.Namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to set annotations on pod %s: %v", podDesc, err)
+		return err
 	}
-	return c.PatchPod(pod, types.MergePatchType, patchData)
-}
 
-// PatchPod applies the patch changes
-func (c *client) PatchPod(pod *kapi.Pod, patchType types.PatchType, patchData []byte) error {
-	log.Debug().Msgf("patch pod, namespace: %s, podName: %s", pod.Namespace, pod.Name)
-	_, err := c.clientset.CoreV1().Pods(pod.Namespace).Patch(
-		context.TODO(), pod.Name, patchType, patchData, metav1.PatchOptions{})
+	// Check if there are any conflicts with the current view of the pod's annotations and the latest version.
+	if currentPod.Annotations != nil {
+		if !reflect.DeepEqual(currentPod.Annotations, pod.Annotations) {
+			return fmt.Errorf("conflict with the current view of the pod's annotations and the latest version")
+		}
+	}
+
+	currentPod.Annotations = annotations
+
+	// Update the pod with retry and backoff
+	err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
+		_, err = c.clientset.CoreV1().Pods(pod.Namespace).Update(
+			context.Background(), currentPod, metav1.UpdateOptions{})
+		return err == nil, nil
+	})
 	return err
 }
 
