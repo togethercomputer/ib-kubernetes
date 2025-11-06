@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	netapi "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	netclient "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned/typed/k8s.cni.cncf.io/v1"
@@ -12,7 +11,6 @@ import (
 	kapi "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -34,8 +32,6 @@ type client struct {
 	clientset kubernetes.Interface
 	netClient netclient.K8sCniCncfIoV1Interface
 }
-
-var backoffValues = wait.Backoff{Duration: 1 * time.Second, Factor: 1.6, Jitter: 0.1, Steps: 6}
 
 // NewK8sClient returns a kubernetes client
 func NewK8sClient() (Client, error) {
@@ -180,12 +176,9 @@ func (c *client) AddFinalizerToPod(pod *kapi.Pod, finalizer string) error {
 	// Add the finalizer
 	currentPod.Finalizers = append(currentPod.Finalizers, finalizer)
 
-	// Update the Pod with retry and backoff
-	err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-		_, err = c.clientset.CoreV1().Pods(pod.Namespace).Update(
-			context.Background(), currentPod, metav1.UpdateOptions{})
-		return err == nil, nil
-	})
+	// Update the Pod
+	_, err = c.clientset.CoreV1().Pods(pod.Namespace).Update(
+		context.Background(), currentPod, metav1.UpdateOptions{})
 	return err
 }
 
@@ -217,11 +210,7 @@ func (c *client) RemoveFinalizerFromPod(pod *kapi.Pod, finalizer string) error {
 	// Update finalizers
 	currentPod.Finalizers = updatedFinalizers
 
-	// Update the Pod with retry and backoff
-	err = wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-		_, err = c.clientset.CoreV1().Pods(pod.Namespace).Update(
-			context.Background(), currentPod, metav1.UpdateOptions{})
-		return err == nil, nil
-	})
+	// Update the Pod
+	_, err = c.clientset.CoreV1().Pods(pod.Namespace).Update(context.Background(), currentPod, metav1.UpdateOptions{})
 	return err
 }
