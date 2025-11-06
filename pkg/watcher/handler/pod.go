@@ -45,6 +45,13 @@ func (p *podEventHandler) OnAdd(obj interface{}, _ bool) {
 	}
 	log.Info().Msgf("pod add Event: namespace %s name %s", pod.Namespace, pod.Name)
 
+	// Check if pod is already in terminating state (DeletionTimestamp is set)
+	if pod.DeletionTimestamp != nil {
+		log.Info().Msgf("pod is already in terminating state: namespace %s name %s", pod.Namespace, pod.Name)
+		p.handleTerminatingPod(pod)
+		return
+	}
+
 	if !utils.PodWantsNetwork(pod) {
 		log.Debug().Msg("pod doesn't require network")
 		return
