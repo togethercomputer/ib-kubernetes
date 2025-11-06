@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"time"
+
 	v1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	kapi "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 )
 
 var _ = Describe("Pod Event Handler", func() {
@@ -43,6 +46,27 @@ var _ = Describe("Pod Event Handler", func() {
 			Expect(len(pods)).To(Equal(2))
 			pods = addMap.Items["kube-system_test"].([]*kapi.Pod)
 			Expect(len(pods)).To(Equal(1))
+		})
+		It("On add terminating pod event", func() {
+			pod := &kapi.Pod{ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &metav1.Time{Time: time.Now()}, UID: "test", Annotations: map[string]string{
+				v1.NetworkAttachmentAnnot: `[
+                      {"name":"test",
+                       "namespace":"default",
+                       "cni-args":{"guid":"02:00:00:00:02:00:00:00", "mellanox.infiniband.app":"configured"}},
+				      {"name":"test2",
+                       "namespace":"default",
+                       "mellanox.infiniband.app":"configured"},
+                      {"name":"test3",
+                       "namespace":"default"}
+                     ]`}},
+				Spec: kapi.PodSpec{NodeName: "test"}}
+			testPodEventHandler := NewPodEventHandler()
+			testPodEventHandler.OnAdd(pod, true)
+			addMap, deleteMap := testPodEventHandler.GetResults()
+			_, terminatingPod := testPodEventHandler.(*podEventHandler).terminatingPods.Load(pod.UID)
+			Expect(len(addMap.Items)).To(Equal(0))
+			Expect(terminatingPod).To(BeTrue())
+			Expect(len(deleteMap.Items)).To(Equal(1))
 		})
 		It("On add pod invalid cases", func() {
 			// No network needed
@@ -85,6 +109,39 @@ var _ = Describe("Pod Event Handler", func() {
 			Expect(len(addMap.Items)).To(Equal(2))
 			Expect(len(addMap.Items["default_test"].([]*kapi.Pod))).To(Equal(1))
 			Expect(len(addMap.Items["default_test2"].([]*kapi.Pod))).To(Equal(1))
+		})
+		It("On update terminating pod event", func() {
+			podOld := &kapi.Pod{ObjectMeta: metav1.ObjectMeta{UID: "test", Annotations: map[string]string{
+				v1.NetworkAttachmentAnnot: `[
+                      {"name":"test",
+                       "namespace":"default",
+                       "cni-args":{"guid":"02:00:00:00:02:00:00:00", "mellanox.infiniband.app":"configured"}},
+				      {"name":"test2",
+                       "namespace":"default",
+                       "mellanox.infiniband.app":"configured"},
+                      {"name":"test3",
+                       "namespace":"default"}
+                     ]`}},
+				Spec: kapi.PodSpec{NodeName: "test"}}
+			podNew := &kapi.Pod{ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &metav1.Time{Time: time.Now()}, UID: "test", Annotations: map[string]string{
+				v1.NetworkAttachmentAnnot: `[
+                      {"name":"test",
+                       "namespace":"default",
+                       "cni-args":{"guid":"02:00:00:00:02:00:00:00", "mellanox.infiniband.app":"configured"}},
+				      {"name":"test2",
+                       "namespace":"default",
+                       "mellanox.infiniband.app":"configured"},
+                      {"name":"test3",
+                       "namespace":"default"}
+                     ]`}},
+				Spec: kapi.PodSpec{NodeName: "test"}}
+			testPodEventHandler := NewPodEventHandler()
+			testPodEventHandler.OnUpdate(podOld, podNew)
+			addMap, deleteMap := testPodEventHandler.GetResults()
+			_, terminatingPod := testPodEventHandler.(*podEventHandler).terminatingPods.Load(podNew.UID)
+			Expect(len(addMap.Items)).To(Equal(0))
+			Expect(terminatingPod).To(BeTrue())
+			Expect(len(deleteMap.Items)).To(Equal(1))
 		})
 		It("On update pod invalid cases", func() {
 			// No network needed
@@ -155,12 +212,19 @@ var _ = Describe("Pod Event Handler", func() {
 			pod4 := &kapi.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
 				v1.NetworkAttachmentAnnot: `[{"name":"test", "cni-args":{"mellanox.infiniband.app":"configured"}}]`}},
 				Spec: kapi.PodSpec{}}
+			// Deleted final state unknown
+			pod5 := cache.DeletedFinalStateUnknown{
+				Obj: &kapi.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					v1.NetworkAttachmentAnnot: `[{"name":"test", "cni-args":{"mellanox.infiniband.app":"configured"}}]`}},
+					Spec: kapi.PodSpec{}},
+			}
 
 			podEventHandler := NewPodEventHandler()
 			podEventHandler.OnDelete(pod1)
 			podEventHandler.OnDelete(pod2)
 			podEventHandler.OnDelete(pod3)
 			podEventHandler.OnDelete(pod4)
+			podEventHandler.OnDelete(pod5)
 
 			_, delMap := podEventHandler.GetResults()
 			Expect(len(delMap.Items)).To(Equal(0))
