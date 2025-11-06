@@ -38,7 +38,11 @@ func (p *podEventHandler) GetResourceObject() runtime.Object {
 
 func (p *podEventHandler) OnAdd(obj interface{}, _ bool) {
 	log.Debug().Msgf("pod add Event: pod %v", obj)
-	pod := obj.(*kapi.Pod)
+	pod, ok := obj.(*kapi.Pod)
+	if !ok {
+		log.Error().Msgf("failed to convert %T to *kapi.Pod", obj)
+		return
+	}
 	log.Info().Msgf("pod add Event: namespace %s name %s", pod.Namespace, pod.Name)
 
 	if !utils.PodWantsNetwork(pod) {
@@ -71,13 +75,21 @@ func (p *podEventHandler) OnAdd(obj interface{}, _ bool) {
 
 func (p *podEventHandler) OnUpdate(oldObj, newObj interface{}) {
 	log.Debug().Msgf("pod update event: oldPod %v, newPod %v", oldObj, newObj)
-	pod := newObj.(*kapi.Pod)
+	pod, ok := newObj.(*kapi.Pod)
+	if !ok {
+		log.Error().Msgf("failed to convert %T to *kapi.Pod", newObj)
+		return
+	}
 	log.Debug().Msgf("pod update event: namespace %s name %s", pod.Namespace, pod.Name)
 	log.Info().Msgf("pod update event - podName: %s", pod.Name)
 
 	// Check if pod is entering terminating state (DeletionTimestamp was just set)
 	if oldObj != nil {
-		oldPod := oldObj.(*kapi.Pod)
+		oldPod, ok := oldObj.(*kapi.Pod)
+		if !ok {
+			log.Error().Msgf("failed to convert %T to *kapi.Pod", oldObj)
+			return
+		}
 		if oldPod.DeletionTimestamp == nil && pod.DeletionTimestamp != nil {
 			log.Info().Msgf("pod entering terminating state: namespace %s name %s", pod.Namespace, pod.Name)
 			p.handleTerminatingPod(pod)
@@ -117,7 +129,11 @@ func (p *podEventHandler) OnUpdate(oldObj, newObj interface{}) {
 
 func (p *podEventHandler) OnDelete(obj interface{}) {
 	log.Debug().Msgf("pod delete event: pod %v", obj)
-	pod := obj.(*kapi.Pod)
+	pod, ok := obj.(*kapi.Pod)
+	if !ok {
+		log.Warn().Msgf("failed to convert %T to *kapi.Pod", obj)
+		return
+	}
 	log.Info().Msgf("pod delete event: namespace %s name %s", pod.Namespace, pod.Name)
 
 	// Clean up tracking maps
