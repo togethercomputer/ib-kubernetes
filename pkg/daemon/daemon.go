@@ -259,7 +259,14 @@ func (d *daemon) addPodFinalizer(pod *kapi.Pod) error {
 // removePodFinalizer removes the GUID cleanup finalizer from a pod
 func (d *daemon) removePodFinalizer(pod *kapi.Pod) error {
 	return wait.ExponentialBackoff(backoffValues, func() (bool, error) {
-		if err := d.kubeClient.RemoveFinalizerFromPod(pod, PodGUIDFinalizer); err != nil {
+		err := d.kubeClient.RemoveFinalizerFromPod(pod, PodGUIDFinalizer)
+		if kerrors.IsNotFound(err) {
+			// Pod has already been deleted, nothing to do.
+			// This is expected as once the first network removes the finalizer, the pod will be deleted,
+			// but the subsequent networks will also try to remove the finalizer.
+			// TODO(Nik): This can lead to issues if a GUID removal fails, it'll stay stuck in UFM.  A more correct solution would be to wait until the "refcount" of guids on the pod is 0, but this will require better state management between failures.
+			return false, err
+		} else if err != nil {
 			log.Warn().Msgf("failed to remove finalizer from pod %s/%s: %v",
 				pod.Namespace, pod.Name, err)
 			return false, nil
@@ -728,7 +735,10 @@ func (d *daemon) DeletePeriodicUpdate() {
 
 			// Remove finalizer from pod after successfully cleaning up GUID
 			if pod, exists := podGUIDMap[guidAddr.String()]; exists {
-				if err = d.removePodFinalizer(pod); err != nil {
+				err = d.removePodFinalizer(pod)
+				if kerrors.IsNotFound(err) {
+					log.Warn().Msgf("attempted to remove finalizer from pod %s/%s that has already been deleted, nothing to do", pod.Namespace, pod.Name)
+				} else if err != nil {
 					log.Error().Msgf("failed to remove finalizer from pod %s/%s: %v", pod.Namespace, pod.Name, err)
 				} else {
 					log.Info().Msgf("removed finalizer %s from pod %s/%s",
