@@ -196,9 +196,10 @@ var _ = Describe("Pod Event Handler", func() {
 			podEventHandler.OnDelete(pod2)
 
 			_, delMap := podEventHandler.GetResults()
-			Expect(len(delMap.Items)).To(Equal(1))
-			Expect(len(delMap.Items["default_test"].([]*kapi.Pod))).To(Equal(2))
+			// OnDelete should be a noop now.
+			Expect(len(delMap.Items)).To(Equal(0))
 		})
+		// Still worth testing to make sure it won't panic.
 		It("On delete pod invalid cases", func() {
 			// No network needed
 			pod1 := &kapi.Pod{Spec: kapi.PodSpec{HostNetwork: true}}
