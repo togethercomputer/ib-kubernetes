@@ -146,46 +146,6 @@ func (p *podEventHandler) OnDelete(obj interface{}) {
 	// Clean up tracking maps
 	p.retryPods.Delete(pod.UID)
 	p.terminatingPods.Delete(pod.UID)
-
-	if !utils.PodWantsNetwork(pod) {
-		log.Debug().Msg("pod doesn't require network")
-		return
-	}
-
-	if !utils.HasNetworkAttachmentAnnot(pod) {
-		log.Debug().Msgf("pod doesn't have network annotation \"%v\"", v1.NetworkAttachmentAnnot)
-		return
-	}
-
-	networks, err := netAttUtils.ParsePodNetworkAnnotation(pod)
-	if err != nil {
-		log.Error().Msgf("failed to parse network annotations with error: %v", err)
-		return
-	}
-
-	for _, network := range networks {
-		if !utils.IsPodNetworkConfiguredWithInfiniBand(network) {
-			continue
-		}
-
-		// check if pod network has guid
-		if !utils.PodNetworkHasGUID(network) {
-			log.Error().Msgf("pod %s has network %s marked as configured with InfiniBand without having guid",
-				pod.Name, network.Name)
-			continue
-		}
-
-		networkID := utils.GenerateNetworkID(network)
-		pods, ok := p.deletedPods.Get(networkID)
-		if !ok {
-			pods = []*kapi.Pod{pod}
-		} else {
-			pods = append(pods.([]*kapi.Pod), pod)
-		}
-		p.deletedPods.Set(networkID, pods)
-	}
-
-	log.Info().Msgf("successfully deleted namespace %s name %s", pod.Namespace, pod.Name)
 }
 
 // handleTerminatingPod processes pods that are entering terminating state (DeletionTimestamp set)
