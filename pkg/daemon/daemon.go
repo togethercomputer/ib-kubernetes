@@ -667,6 +667,11 @@ func (d *daemon) DeletePeriodicUpdate() {
 	_, deleteMap := d.watcher.GetHandler().GetResults()
 	deleteMap.Lock()
 	defer deleteMap.Unlock()
+	// Pkey -> NetworkID -> GUIDs
+	pkeyToNetworkIdToGUIDs := make(map[int]map[string][]net.HardwareAddr)
+	// maps GUID string -> pod
+	podGUIDMap := make(map[string]*kapi.Pod)
+	// Delete map is indexed by networkID and the value is a list of deleting pods using that network.
 	for networkID, podsInterface := range deleteMap.Items {
 		log.Info().Msgf("processing network networkID %s", networkID)
 		pods, ok := podsInterface.([]*kapi.Pod)
@@ -680,6 +685,7 @@ func (d *daemon) DeletePeriodicUpdate() {
 			continue
 		}
 
+		// Fetch cni spec (for the pkey) and network name from the networkID
 		networkName, ibCniSpec, err := d.getIbSriovNetwork(networkID)
 		if err != nil {
 			deleteMap.UnSafeRemove(networkID)
@@ -687,8 +693,8 @@ func (d *daemon) DeletePeriodicUpdate() {
 			continue
 		}
 
+		// Extract GUIDs from the pods corresponding to the network
 		var guidList []net.HardwareAddr
-		var podGUIDMap = make(map[string]*kapi.Pod) // maps GUID string to pod
 		var guidAddr net.HardwareAddr
 		for _, pod := range pods {
 			log.Debug().Msgf("pod namespace %s name %s", pod.Namespace, pod.Name)
@@ -709,28 +715,71 @@ func (d *daemon) DeletePeriodicUpdate() {
 				continue
 			}
 
-			// Remove GUIDs from pKeys (main and limited partition)
-			if err = d.removeGUIDsFromPKeyWithLimitedPartition(pKey, guidList); err != nil {
-				log.Warn().Msgf("%v", err)
-				continue
+			// Add guidList and networkID to pKey map for removal from pKey
+			if pkeyToNetworkIdToGUIDs[pKey] == nil {
+				pkeyToNetworkIdToGUIDs[pKey] = make(map[string][]net.HardwareAddr)
 			}
+			pkeyToNetworkIdToGUIDs[pKey][networkID] = guidList
+		} else {
+			// If the network is not in a pKey, remove it from the guidPool now.
+			for _, guidAddr := range guidList {
+				if err = d.guidPool.ReleaseGUID(guidAddr.String()); err != nil {
+					log.Error().Msgf("%v", err)
+					continue
+				}
+
+				delete(d.guidPodNetworkMap, guidAddr.String())
+
+				// Remove finalizer from pod after successfully cleaning up GUID
+				// TODO(Nik): This could be problematic if some are in a pkey and some aren't and they fail or split across batches.
+				if pod, exists := podGUIDMap[guidAddr.String()]; exists {
+					err = d.removePodFinalizer(pod)
+					if kerrors.IsNotFound(err) {
+						log.Warn().Msgf("attempted to remove finalizer from pod %s/%s that has already been deleted, nothing to do", pod.Namespace, pod.Name)
+					} else if err != nil {
+						log.Error().Msgf("failed to remove finalizer from pod %s/%s: %v", pod.Namespace, pod.Name, err)
+						// Continue?
+					} else {
+						log.Info().Msgf("removed finalizer %s from pod %s/%s",
+							PodGUIDFinalizer, pod.Namespace, pod.Name)
+					}
+				}
+			}
+			deleteMap.UnSafeRemove(networkID)
+		}
+	}
+
+	// Remove all guids for all networks
+	for pKey, networkIDToGUIDs := range pkeyToNetworkIdToGUIDs {
+		guidsToRelease := make([]net.HardwareAddr, 0)
+		for networkID, guidList := range networkIDToGUIDs {
+			log.Debug().Msgf("releasing guids: %v for networkID %s", guidList, networkID)
+			guidsToRelease = append(guidsToRelease, guidList...)
 		}
 
-		for _, guidAddr := range guidList {
-			if err = d.guidPool.ReleaseGUID(guidAddr.String()); err != nil {
+		// Remove GUIDs from pKeys (main and limited partition)
+		if err := d.removeGUIDsFromPKeyWithLimitedPartition(pKey, guidsToRelease); err != nil {
+			log.Warn().Msgf("%v", err)
+			continue
+		}
+
+		// Release guids from the guidPool
+		for _, guidAddr := range guidsToRelease {
+			if err := d.guidPool.ReleaseGUID(guidAddr.String()); err != nil {
 				log.Error().Msgf("%v", err)
-				continue
+				continue // TODO(Nik): Double continue
 			}
 
 			delete(d.guidPodNetworkMap, guidAddr.String())
 
 			// Remove finalizer from pod after successfully cleaning up GUID
 			if pod, exists := podGUIDMap[guidAddr.String()]; exists {
-				err = d.removePodFinalizer(pod)
+				err := d.removePodFinalizer(pod)
 				if kerrors.IsNotFound(err) {
 					log.Warn().Msgf("attempted to remove finalizer from pod %s/%s that has already been deleted, nothing to do", pod.Namespace, pod.Name)
 				} else if err != nil {
 					log.Error().Msgf("failed to remove finalizer from pod %s/%s: %v", pod.Namespace, pod.Name, err)
+					// TODO(Nik): Retry/continue?
 				} else {
 					log.Info().Msgf("removed finalizer %s from pod %s/%s",
 						PodGUIDFinalizer, pod.Namespace, pod.Name)
@@ -739,16 +788,21 @@ func (d *daemon) DeletePeriodicUpdate() {
 		}
 
 		// Once all pod GUIDs in the batch have been handled, check if NAD finalizer can be safely removed
-		if ibCniSpec.PKey != "" && len(guidList) != 0 {
+		for networkID := range networkIDToGUIDs {
 			networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
 			if err := d.removeNADFinalizerIfSafe(networkNamespace, networkName); err != nil {
 				log.Error().Msgf("failed to remove NAD finalizer for %s/%s: %v", networkNamespace, networkName, err)
+				// TODO(Nik): Retry/continue?
 			} else {
 				log.Info().Msgf("checked and potentially removed finalizer %s from NetworkAttachmentDefinition %s/%s",
 					GUIDInUFMFinalizer, networkNamespace, networkName)
 			}
 		}
-		deleteMap.UnSafeRemove(networkID)
+
+		// If all steps succeed, remove networkIDs from the deleteMap
+		for networkID := range networkIDToGUIDs {
+			deleteMap.UnSafeRemove(networkID)
+		}
 	}
 
 	log.Info().Msg("delete periodic update finished")
