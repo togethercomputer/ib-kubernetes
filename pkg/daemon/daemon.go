@@ -46,7 +46,7 @@ type daemon struct {
 	smClient                      plugins.SubnetManagerClient
 	guidPodNetworkMap             map[string]string // allocated guid mapped to the pod and network
 	lastPkeyAPICallTimestamp      time.Time         // timestamp of the last initiated pkey modification API call
-	lastPkeyAPICallTimestampMutex sync.Mutex        // proctects lastPkeyAPICallTimestamp
+	lastPkeyAPICallTimestampMutex sync.Mutex        // protects lastPkeyAPICallTimestamp
 }
 
 // Temporary struct used to proceed pods' networks
@@ -65,10 +65,9 @@ type networksMap struct {
 // It queries the SM's pkey last_updated timestamp and compares it to the last time the client has made a call to the pkey API.
 // If last_updated timestamp > stored API call timestamp, our previous operation likely completed and we can proceed.
 func (d *daemon) canProceedWithPkeyModification() bool {
-	lastPkeyUpdateTimestamp, err := d.smClient.GetLastPKeyUpdateTimestamp()
 	d.lastPkeyAPICallTimestampMutex.Lock()
-	// I'm not a huge fan of wrapping a network call in a mutex, but I think it's necessary to avoid a TOCTOU race.
-	defer d.lastPkeyAPICallTimestampMutex.Unlock()
+    defer d.lastPkeyAPICallTimestampMutex.Unlock()
+    lastPkeyUpdateTimestamp, err := d.smClient.GetLastPKeyUpdateTimestamp()
 	lastAPICallTimestamp := d.lastPkeyAPICallTimestamp
 	if err != nil {
 		log.Warn().Msgf("failed to get SM pkey last_updated timestamp for canProceedWithPkeyModification check: %v", err)
