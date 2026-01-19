@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -15,6 +16,8 @@ import (
 type Client interface {
 	Get(url string, expectedStatusCode int) ([]byte, error)
 	Post(url string, expectedStatusCode int, body []byte) ([]byte, error)
+	// GetServerTime makes a lightweight request and returns the server's Date header timestamp
+	GetServerTime(url string) (time.Time, error)
 }
 
 type BasicAuth struct {
@@ -88,4 +91,35 @@ func (c *client) executeRequest(method, url string, expectedStatusCode int, body
 	}
 
 	return responseBody, nil
+}
+
+// GetServerTime makes a HEAD request to the given URL and parses the Date header to get server time
+func (c *client) GetServerTime(url string) (time.Time, error) {
+	req, err := c.createRequest(context.TODO(), http.MethodHead, url, nil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to get server time: %v", err)
+	}
+	//nolint:errcheck
+	defer resp.Body.Close()
+
+	dateHeader := resp.Header.Get("Date")
+	if dateHeader == "" {
+		return time.Time{}, fmt.Errorf("no Date header in response")
+	}
+
+	// Parse HTTP date format (RFC 1123)
+	serverTime, err := time.Parse(time.RFC1123, dateHeader)
+	if err != nil {
+		// Try RFC 1123Z format
+		serverTime, err = time.Parse(time.RFC1123Z, dateHeader)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("failed to parse Date header %q: %v", dateHeader, err)
+		}
+	}
+
+	return serverTime, nil
 }

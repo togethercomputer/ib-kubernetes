@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"sync"
 	"syscall"
 	"time"
 
@@ -38,12 +39,14 @@ type Daemon interface {
 }
 
 type daemon struct {
-	config            config.DaemonConfig
-	watcher           watcher.Watcher
-	kubeClient        k8sClient.Client
-	guidPool          guid.Pool
-	smClient          plugins.SubnetManagerClient
-	guidPodNetworkMap map[string]string // allocated guid mapped to the pod and network
+	config                        config.DaemonConfig
+	watcher                       watcher.Watcher
+	kubeClient                    k8sClient.Client
+	guidPool                      guid.Pool
+	smClient                      plugins.SubnetManagerClient
+	guidPodNetworkMap             map[string]string // allocated guid mapped to the pod and network
+	lastPkeyAPICallTimestamp      time.Time         // timestamp of the last initiated pkey modification API call
+	lastPkeyAPICallTimestampMutex sync.Mutex        // proctects lastPkeyAPICallTimestamp
 }
 
 // Temporary struct used to proceed pods' networks
@@ -56,6 +59,70 @@ type podNetworkInfo struct {
 
 type networksMap struct {
 	theMap map[types.UID][]*v1.NetworkSelectionElement
+}
+
+// canProceedWithPkeyModification avoids making pkey modification calls before the previous call is completed.
+// It queries the SM's pkey last_updated timestamp and compares it to the last time the client has made a call to the pkey API.
+// If last_updated timestamp > stored API call timestamp, our previous operation likely completed and we can proceed.
+func (d *daemon) canProceedWithPkeyModification() bool {
+	lastPkeyUpdateTimestamp, err := d.smClient.GetLastPKeyUpdateTimestamp()
+	d.lastPkeyAPICallTimestampMutex.Lock()
+	// I'm not a huge fan of wrapping a network call in a mutex, but I think it's necessary to avoid a TOCTOU race.
+	defer d.lastPkeyAPICallTimestampMutex.Unlock()
+	lastAPICallTimestamp := d.lastPkeyAPICallTimestamp
+	if err != nil {
+		log.Warn().Msgf("failed to get SM pkey last_updated timestamp for canProceedWithPkeyModification check: %v, proceeding anyway", err)
+		// If we can't get the timestamp, proceed anyway (fail open)
+		d.updateLastPkeyAPICallTimestamp()
+		return true
+	}
+
+	// SM returns null for last_updated when no PKey updates have been done yet
+	// In this case, we can proceed since there's nothing in progress
+	if lastPkeyUpdateTimestamp.IsZero() {
+		log.Debug().Msgf("SM pkey last_updated is null (no updates yet), proceeding with pkey modification call")
+		d.updateLastPkeyAPICallTimestamp()
+		return true
+	}
+
+	// First call from our side - no previous timestamp stored
+	if lastAPICallTimestamp.IsZero() {
+		log.Debug().Msgf("no previous timestamp stored locally, proceeding with SM call")
+		d.updateLastPkeyAPICallTimestamp()
+		return true
+	}
+
+	// Check if last_updated timestamp > stored API call timestamp
+	// If the SM's last_updated has advanced past our stored API call timestamp, our previous operation likely completed
+	if lastPkeyUpdateTimestamp.After(lastAPICallTimestamp) {
+		log.Debug().Msgf("SM pkey last_updated %v > stored timestamp %v, proceeding",
+			lastPkeyUpdateTimestamp, lastAPICallTimestamp)
+		d.updateLastPkeyAPICallTimestamp()
+		return true
+	}
+
+	log.Info().Msgf("pkey last_updated %v <= stored timestamp %v, skipping pkey modification call this cycle (previous op may still be in progress)",
+		lastPkeyUpdateTimestamp, lastAPICallTimestamp)
+	return false
+}
+
+// updateLastPkeyAPICallTimestamp updates the stored server side timestamp when a pkey modification API call was made.
+func (d *daemon) updateLastPkeyAPICallTimestamp() {
+	currentTimestamp, err := d.smClient.GetServerTime()
+	if err != nil {
+		log.Warn().Msgf("failed to get SM current time: %v", err)
+		return
+	}
+
+	if currentTimestamp.IsZero() {
+		log.Warn().Msg("failed to get SM current time: returned time is 0")
+		return
+	}
+
+	if currentTimestamp.After(d.lastPkeyAPICallTimestamp) {
+		d.lastPkeyAPICallTimestamp = currentTimestamp
+	}
+	log.Debug().Msgf("Updated last pkey modification timestamp to %v", currentTimestamp)
 }
 
 // Exponential backoff ~26 sec + 6 * <api call time>
@@ -629,6 +696,10 @@ func (d *daemon) AddPeriodicUpdate() {
 		}
 
 		// Batch add GUIDs to pKey (main and limited partition)
+		if !d.canProceedWithPkeyModification() {
+			log.Warn().Msgf("previous pkey modification was not completed, requeuing")
+			continue
+		}
 		if err := d.addGUIDsToPKeyWithLimitedPartition(pKey, guidsToAdd); err != nil {
 			log.Error().Msgf("%v", err)
 			continue
@@ -663,6 +734,10 @@ func (d *daemon) AddPeriodicUpdate() {
 
 		// Batch remove GUIDs from pKey if any were removed during annotation updates
 		if len(allRemovedGUIDs) != 0 {
+			if !d.canProceedWithPkeyModification() {
+				log.Warn().Msgf("previous pkey modification was not completed, requeuing")
+				continue
+			}
 			if err := d.removeGUIDsFromPKeyWithLimitedPartition(pKey, allRemovedGUIDs); err != nil {
 				log.Warn().Msgf("%v", err)
 				continue
@@ -808,6 +883,10 @@ func (d *daemon) DeletePeriodicUpdate() {
 		}
 
 		// Remove GUIDs from pKeys (main and limited partition)
+		if !d.canProceedWithPkeyModification() {
+			log.Warn().Msgf("previous pkey modification was not completed, requeuing")
+			continue
+		}
 		if err := d.removeGUIDsFromPKeyWithLimitedPartition(pKey, guidsToRelease); err != nil {
 			log.Warn().Msgf("%v", err)
 			continue
