@@ -71,10 +71,9 @@ func (d *daemon) canProceedWithPkeyModification() bool {
 	defer d.lastPkeyAPICallTimestampMutex.Unlock()
 	lastAPICallTimestamp := d.lastPkeyAPICallTimestamp
 	if err != nil {
-		log.Warn().Msgf("failed to get SM pkey last_updated timestamp for canProceedWithPkeyModification check: %v, proceeding anyway", err)
-		// If we can't get the timestamp, proceed anyway (fail open)
-		d.updateLastPkeyAPICallTimestamp()
-		return true
+		log.Warn().Msgf("failed to get SM pkey last_updated timestamp for canProceedWithPkeyModification check: %v", err)
+		// If we can't get the timestamp, don't proceed
+		return false
 	}
 
 	// SM returns null for last_updated when no PKey updates have been done yet
