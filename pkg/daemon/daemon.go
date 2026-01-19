@@ -66,8 +66,8 @@ type networksMap struct {
 // If last_updated timestamp > stored API call timestamp, our previous operation likely completed and we can proceed.
 func (d *daemon) canProceedWithPkeyModification() bool {
 	d.lastPkeyAPICallTimestampMutex.Lock()
-    defer d.lastPkeyAPICallTimestampMutex.Unlock()
-    lastPkeyUpdateTimestamp, err := d.smClient.GetLastPKeyUpdateTimestamp()
+	defer d.lastPkeyAPICallTimestampMutex.Unlock()
+	lastPkeyUpdateTimestamp, err := d.smClient.GetLastPKeyUpdateTimestamp()
 	lastAPICallTimestamp := d.lastPkeyAPICallTimestamp
 	if err != nil {
 		log.Warn().Msgf("failed to get SM pkey last_updated timestamp for canProceedWithPkeyModification check: %v", err)
@@ -90,16 +90,16 @@ func (d *daemon) canProceedWithPkeyModification() bool {
 		return true
 	}
 
-	// Check if last_updated timestamp > stored API call timestamp
-	// If the SM's last_updated has advanced past our stored API call timestamp, our previous operation likely completed
-	if lastPkeyUpdateTimestamp.After(lastAPICallTimestamp) {
-		log.Debug().Msgf("SM pkey last_updated %v > stored timestamp %v, proceeding",
+	// Check if last_updated timestamp >= stored API call timestamp
+	// If the SM's last_updated has reached or passed our stored API call timestamp, our previous operation likely completed
+	if !lastPkeyUpdateTimestamp.Before(lastAPICallTimestamp) {
+		log.Debug().Msgf("SM pkey last_updated %v >= stored timestamp %v, proceeding",
 			lastPkeyUpdateTimestamp, lastAPICallTimestamp)
 		d.updateLastPkeyAPICallTimestamp()
 		return true
 	}
 
-	log.Info().Msgf("pkey last_updated %v <= stored timestamp %v, skipping pkey modification call this cycle (previous op may still be in progress)",
+	log.Info().Msgf("pkey last_updated %v < stored timestamp %v, skipping pkey modification call this cycle (previous op may still be in progress)",
 		lastPkeyUpdateTimestamp, lastAPICallTimestamp)
 	return false
 }

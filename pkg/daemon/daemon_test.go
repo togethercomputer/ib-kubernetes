@@ -143,7 +143,7 @@ var _ = Describe("Daemon", func() {
 			Expect(d.lastPkeyAPICallTimestamp).To(Equal(newServerTime))
 		})
 
-		It("returns false when SM last_updated <= stored timestamp (previous op still in progress)", func() {
+		It("returns false when SM last_updated < stored timestamp (previous op still in progress)", func() {
 			// Stored timestamp from previous API call
 			d.lastPkeyAPICallTimestamp = time.Date(2024, time.January, 15, 10, 0, 0, 0, time.UTC)
 
@@ -158,16 +158,19 @@ var _ = Describe("Daemon", func() {
 			Expect(d.lastPkeyAPICallTimestamp).To(Equal(time.Date(2024, time.January, 15, 10, 0, 0, 0, time.UTC)))
 		})
 
-		It("returns false when SM last_updated equals stored timestamp", func() {
+		It("returns true when SM last_updated equals stored timestamp (previous op completed)", func() {
 			storedTime := time.Date(2024, time.January, 15, 10, 0, 0, 0, time.UTC)
 			d.lastPkeyAPICallTimestamp = storedTime
 
-			// SM reports the same last_updated
+			// SM reports the same last_updated - operation completed at exactly our stored time
 			smClient.On("GetLastPKeyUpdateTimestamp").Return(storedTime, nil)
+			newServerTime := time.Date(2024, time.January, 15, 10, 30, 0, 0, time.UTC)
+			smClient.On("GetServerTime").Return(newServerTime, nil)
 
 			result := d.canProceedWithPkeyModification()
 
-			Expect(result).To(BeFalse())
+			Expect(result).To(BeTrue())
+			Expect(d.lastPkeyAPICallTimestamp).To(Equal(newServerTime))
 		})
 	})
 
