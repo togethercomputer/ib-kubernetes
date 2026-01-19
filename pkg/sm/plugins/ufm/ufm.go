@@ -333,18 +333,21 @@ func (u *ufmPlugin) GetLastPKeyUpdateTimestamp() (time.Time, error) {
 		return time.Time{}, nil
 	}
 
-	// Parse the timestamp format: "Thu Sep  3 11:42:39 UTC 2020"
-	// Note: This format has variable spacing (e.g., "Sep  3" vs "Sep 13")
-	lastUpdated, err := time.Parse("Mon Jan  2 15:04:05 MST 2006", *lastUpdatedResp.LastUpdated)
-	if err != nil {
-		// Try alternate format with single-digit day
-		lastUpdated, err = time.Parse("Mon Jan 2 15:04:05 MST 2006", *lastUpdatedResp.LastUpdated)
-		if err != nil {
-			return time.Time{}, fmt.Errorf("failed to parse last_updated timestamp %q: %v", *lastUpdatedResp.LastUpdated, err)
+	// Try multiple timestamp formats that UFM might return
+	timestampFormats := []string{
+		"02-01-2006, 15:04:05",         // DD-MM-YYYY, HH:MM:SS (newer UFM format)
+		"Mon Jan  2 15:04:05 MST 2006", // Thu Sep  3 11:42:39 UTC 2020 (double space for single-digit day)
+		"Mon Jan 2 15:04:05 MST 2006",  // Thu Sep 13 11:42:39 UTC 2020 (single space for double-digit day)
+	}
+
+	for _, format := range timestampFormats {
+		lastUpdated, err := time.Parse(format, *lastUpdatedResp.LastUpdated)
+		if err == nil {
+			return lastUpdated, nil
 		}
 	}
 
-	return lastUpdated, nil
+	return time.Time{}, fmt.Errorf("failed to parse last_updated timestamp %q: no matching format found", *lastUpdatedResp.LastUpdated)
 }
 
 // GetServerTime returns the current time on the UFM server.

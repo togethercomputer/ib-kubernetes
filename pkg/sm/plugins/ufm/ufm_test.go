@@ -321,9 +321,9 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 			plugin, err := newUfmPlugin()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plugin).ToNot(BeNil())
-			Expect(plugin.conf.EnableIPOverIB).To(BeFalse())                    // Default should be false
-			Expect(plugin.conf.DefaultLimitedPartition).To(Equal(""))           // Default should be empty
-			Expect(plugin.conf.EnableIndex0ForPrimaryPkey).To(BeTrue())         // Default should be true
+			Expect(plugin.conf.EnableIPOverIB).To(BeFalse())            // Default should be false
+			Expect(plugin.conf.DefaultLimitedPartition).To(Equal(""))   // Default should be empty
+			Expect(plugin.conf.EnableIndex0ForPrimaryPkey).To(BeTrue()) // Default should be true
 		})
 		It("newUfmPlugin with explicit false EnableIPOverIB config", func() {
 			Expect(os.Setenv("UFM_USERNAME", "admin")).ToNot(HaveOccurred())
@@ -378,6 +378,21 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 		})
 	})
 	Context("GetLastPKeyUpdateTimestamp", func() {
+		It("Get last update timestamp successfully with DD-MM-YYYY format (newer UFM)", func() {
+			testResponse := `{"last_updated": "19-01-2026, 20:34:50"}`
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(testResponse), nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			timestamp, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(timestamp.Year()).To(Equal(2026))
+			Expect(timestamp.Month()).To(Equal(time.January))
+			Expect(timestamp.Day()).To(Equal(19))
+			Expect(timestamp.Hour()).To(Equal(20))
+			Expect(timestamp.Minute()).To(Equal(34))
+			Expect(timestamp.Second()).To(Equal(50))
+		})
 		It("Get last update timestamp successfully with double-digit day", func() {
 			testResponse := `{"last_updated": "Thu Sep 13 11:42:39 UTC 2020"}`
 			client := &mocks.Client{}
