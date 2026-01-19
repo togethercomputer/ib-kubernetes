@@ -1,4 +1,4 @@
-package daemon
+package http
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestDaemon(t *testing.T) {
+func TestHTTPClient(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Daemon Suite")
+	RunSpecs(t, "HTTP Client Suite")
 }
