@@ -3,9 +3,10 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	v1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
 	kapi "k8s.io/api/core/v1"
@@ -134,6 +135,9 @@ var _ = Describe("Daemon Multi-Network Regression Tests", func() {
 		mockSMClient.On("AddGuidsToLimitedPKey", mock.Anything, mock.Anything).Return(nil).Maybe()
 		mockSMClient.On("RemoveGuidsFromPKey", mock.Anything, mock.Anything).Return(nil).Maybe()
 		mockSMClient.On("ListGuidsInUse").Return([]string{}, nil).Maybe()
+		// Return zero time for GetLastPKeyUpdateTimestamp - this signals no updates yet and allows proceeding
+		mockSMClient.On("GetLastPKeyUpdateTimestamp").Return(time.Time{}, nil).Maybe()
+		mockSMClient.On("GetServerTime").Return(time.Now(), nil).Maybe()
 	})
 
 	AfterEach(func() {
