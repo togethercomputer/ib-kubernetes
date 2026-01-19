@@ -734,10 +734,6 @@ func (d *daemon) AddPeriodicUpdate() {
 
 		// Batch remove GUIDs from pKey if any were removed during annotation updates
 		if len(allRemovedGUIDs) != 0 {
-			if !d.canProceedWithPkeyModification() {
-				log.Warn().Msgf("previous pkey modification was not completed, requeuing")
-				continue
-			}
 			if err := d.removeGUIDsFromPKeyWithLimitedPartition(pKey, allRemovedGUIDs); err != nil {
 				log.Warn().Msgf("%v", err)
 				continue
