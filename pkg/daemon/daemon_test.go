@@ -313,7 +313,7 @@ var _ = Describe("Daemon", func() {
 		)
 
 		BeforeEach(func() {
-			smClient = &smMocks.SubnetManagerClient{}
+			smClient = smMocks.NewSubnetManagerClient()
 			k8sClient = &k8sClientMocks.Client{}
 			handler = &handlerMocks.ResourceEventHandler{}
 			addMap = utils.NewSynchronizedMap()
@@ -620,7 +620,7 @@ var _ = Describe("Daemon", func() {
 		)
 
 		BeforeEach(func() {
-			smClient = &smMocks.SubnetManagerClient{}
+			smClient = smMocks.NewSubnetManagerClient()
 			k8sClient = &k8sClientMocks.Client{}
 			handler = &handlerMocks.ResourceEventHandler{}
 			addMap = utils.NewSynchronizedMap()
