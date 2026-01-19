@@ -1,6 +1,9 @@
 package plugins
 
-import "net"
+import (
+	"net"
+	"time"
+)
 
 type SubnetManagerClient interface {
 	// Name returns the name of the plugin
@@ -29,4 +32,10 @@ type SubnetManagerClient interface {
 
 	// SetConfig allows the daemon to pass configuration to the plugin
 	SetConfig(config map[string]interface{}) error
+
+	// GetLastPKeyUpdateTimestamp returns the last update timestamp from the subnet manager.
+	GetLastPKeyUpdateTimestamp() (time.Time, error)
+
+	// GetServerTime returns the current time according to the subnet manager.
+	GetServerTime() (time.Time, error)
 }

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/rs/zerolog/log"
@@ -29,14 +30,14 @@ const (
 )
 
 type UFMConfig struct {
-	Username                string `env:"UFM_USERNAME"`                         // Username of ufm
-	Password                string `env:"UFM_PASSWORD"`                         // Password of ufm
-	Address                 string `env:"UFM_ADDRESS"`                          // IP address or hostname of ufm server
-	Port                    int    `env:"UFM_PORT"`                             // REST API port of ufm
-	HTTPSchema              string `env:"UFM_HTTP_SCHEMA"`                      // http or https
-	Certificate             string `env:"UFM_CERTIFICATE"`                      // Certificate of ufm
-	EnableIPOverIB             bool   `env:"ENABLE_IP_OVER_IB" envDefault:"false"`         // Enable IP over IB functionality
-	DefaultLimitedPartition    string `env:"DEFAULT_LIMITED_PARTITION"`                    // Default partition key for limited membership
+	Username                   string `env:"UFM_USERNAME"`                                     // Username of ufm
+	Password                   string `env:"UFM_PASSWORD"`                                     // Password of ufm
+	Address                    string `env:"UFM_ADDRESS"`                                      // IP address or hostname of ufm server
+	Port                       int    `env:"UFM_PORT"`                                         // REST API port of ufm
+	HTTPSchema                 string `env:"UFM_HTTP_SCHEMA"`                                  // http or https
+	Certificate                string `env:"UFM_CERTIFICATE"`                                  // Certificate of ufm
+	EnableIPOverIB             bool   `env:"ENABLE_IP_OVER_IB" envDefault:"false"`             // Enable IP over IB functionality
+	DefaultLimitedPartition    string `env:"DEFAULT_LIMITED_PARTITION"`                        // Default partition key for limited membership
 	EnableIndex0ForPrimaryPkey bool   `env:"ENABLE_INDEX0_FOR_PRIMARY_PKEY" envDefault:"true"` // Enable index0 for primary pkey GUID additions
 }
 
@@ -307,6 +308,48 @@ func (u *ufmPlugin) SetConfig(config map[string]interface{}) error {
 	}
 
 	return nil
+}
+
+// PKeyLastUpdatedResponse represents the response from /ufmRest/resources/pkeys/last_updated
+type PKeyLastUpdatedResponse struct {
+	LastUpdated *string `json:"last_updated"`
+}
+
+// GetLastPKeyUpdateTimestamp returns the pkey last updated timestamp from UFM.
+func (u *ufmPlugin) GetLastPKeyUpdateTimestamp() (time.Time, error) {
+	response, err := u.client.Get(u.buildURL("/ufmRest/resources/pkeys/last_updated"), http.StatusOK)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to get PKey last updated timestamp: %v", err)
+	}
+
+	var lastUpdatedResp PKeyLastUpdatedResponse
+	if err := json.Unmarshal(response, &lastUpdatedResp); err != nil {
+		return time.Time{}, fmt.Errorf("failed to parse PKey last updated response: %v", err)
+	}
+
+	// last_updated can be null when no updates have been done on PKey data
+	if lastUpdatedResp.LastUpdated == nil {
+		log.Debug().Msg("PKey last_updated is null (no updates done yet)")
+		return time.Time{}, nil
+	}
+
+	// Parse the timestamp format: "Thu Sep  3 11:42:39 UTC 2020"
+	// Note: This format has variable spacing (e.g., "Sep  3" vs "Sep 13")
+	lastUpdated, err := time.Parse("Mon Jan  2 15:04:05 MST 2006", *lastUpdatedResp.LastUpdated)
+	if err != nil {
+		// Try alternate format with single-digit day
+		lastUpdated, err = time.Parse("Mon Jan 2 15:04:05 MST 2006", *lastUpdatedResp.LastUpdated)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("failed to parse last_updated timestamp %q: %v", *lastUpdatedResp.LastUpdated, err)
+		}
+	}
+
+	return lastUpdated, nil
+}
+
+// GetServerTime returns the current time on the UFM server.
+func (u *ufmPlugin) GetServerTime() (time.Time, error) {
+	return u.client.GetServerTime(u.buildURL("/ufmRest/app/ufm_version"))
 }
 
 // Initialize applies configs to plugin and return a subnet manager client
