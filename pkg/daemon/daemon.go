@@ -112,9 +112,9 @@ func NewDaemon() (Daemon, error) {
 
 	// Pass configuration from daemon to the plugin
 	pluginConfig := map[string]interface{}{
-		"ENABLE_IP_OVER_IB":                 daemonConfig.EnableIPOverIB,
-		"DEFAULT_LIMITED_PARTITION":         daemonConfig.DefaultLimitedPartition,
-		"ENABLE_INDEX0_FOR_PRIMARY_PKEY":    daemonConfig.EnableIndex0ForPrimaryPkey,
+		"ENABLE_IP_OVER_IB":              daemonConfig.EnableIPOverIB,
+		"DEFAULT_LIMITED_PARTITION":      daemonConfig.DefaultLimitedPartition,
+		"ENABLE_INDEX0_FOR_PRIMARY_PKEY": daemonConfig.EnableIndex0ForPrimaryPkey,
 	}
 	if err := smClient.SetConfig(pluginConfig); err != nil {
 		log.Warn().Msgf("Failed to set configuration on subnet manager plugin: %v", err)
@@ -714,15 +714,6 @@ func (d *daemon) DeletePeriodicUpdate() {
 				log.Warn().Msgf("%v", err)
 				continue
 			}
-
-			// Check if NAD finalizer can be safely removed
-			networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
-			if err := d.removeNADFinalizerIfSafe(networkNamespace, networkName); err != nil {
-				log.Error().Msgf("failed to remove NAD finalizer for %s/%s: %v", networkNamespace, networkName, err)
-			} else {
-				log.Info().Msgf("checked and potentially removed finalizer %s from NetworkAttachmentDefinition %s/%s",
-					GUIDInUFMFinalizer, networkNamespace, networkName)
-			}
 		}
 
 		for _, guidAddr := range guidList {
@@ -744,6 +735,17 @@ func (d *daemon) DeletePeriodicUpdate() {
 					log.Info().Msgf("removed finalizer %s from pod %s/%s",
 						PodGUIDFinalizer, pod.Namespace, pod.Name)
 				}
+			}
+		}
+
+		// Once all pod GUIDs in the batch have been handled, check if NAD finalizer can be safely removed
+		if ibCniSpec.PKey != "" && len(guidList) != 0 {
+			networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
+			if err := d.removeNADFinalizerIfSafe(networkNamespace, networkName); err != nil {
+				log.Error().Msgf("failed to remove NAD finalizer for %s/%s: %v", networkNamespace, networkName, err)
+			} else {
+				log.Info().Msgf("checked and potentially removed finalizer %s from NetworkAttachmentDefinition %s/%s",
+					GUIDInUFMFinalizer, networkNamespace, networkName)
 			}
 		}
 		deleteMap.UnSafeRemove(networkID)
@@ -810,6 +812,16 @@ func (d *daemon) initPool() error {
 	return nil
 }
 
+// hasPodFinalizer checks if the pod has the GUID finalizer (i.e. the guid is still registered with UFM)
+func hasPodFinalizer(pod *kapi.Pod) bool {
+	for _, finalizer := range pod.Finalizers {
+		if finalizer == PodGUIDFinalizer {
+			return true
+		}
+	}
+	return false
+}
+
 // checkIfAnyPodsUsingNetwork checks if there are any pods still using the given network
 func (d *daemon) checkIfAnyPodsUsingNetwork(networkNamespace, networkName string) (bool, error) {
 	pods, err := d.kubeClient.GetPods(kapi.NamespaceAll)
@@ -819,11 +831,6 @@ func (d *daemon) checkIfAnyPodsUsingNetwork(networkNamespace, networkName string
 
 	for i := range pods.Items {
 		pod := &pods.Items[i]
-
-		// Skip pods that are being deleted (have deletion timestamp)
-		if pod.DeletionTimestamp != nil {
-			continue
-		}
 
 		if !utils.HasNetworkAttachmentAnnot(pod) {
 			continue
@@ -837,8 +844,8 @@ func (d *daemon) checkIfAnyPodsUsingNetwork(networkNamespace, networkName string
 		for _, network := range networks {
 			// Check if this pod uses the network we're checking
 			if network.Namespace == networkNamespace && network.Name == networkName {
-				// Check if this network is configured with InfiniBand and has a GUID
-				if utils.IsPodNetworkConfiguredWithInfiniBand(network) && utils.PodNetworkHasGUID(network) {
+				// Check if this network is configured with InfiniBand and has a still registered GUID
+				if utils.IsPodNetworkConfiguredWithInfiniBand(network) && utils.PodNetworkHasGUID(network) && hasPodFinalizer(pod) {
 					log.Debug().Msgf("Found pod %s/%s still using network %s/%s",
 						pod.Namespace, pod.Name, networkNamespace, networkName)
 					return true, nil

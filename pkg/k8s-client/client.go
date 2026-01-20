@@ -17,7 +17,7 @@ import (
 )
 
 type Client interface {
-	GetPods(namespace string) (*kapi.PodList, error)
+	GetPods(namespace string) (*kapi.PodList, error) // NOTE: List pods need strong consistency guarantees, ListOptions cannot be modified to use non-quorum reads.
 	SetAnnotationsOnPod(pod *kapi.Pod, annotations map[string]string) error
 	PatchPod(pod *kapi.Pod, patchType types.PatchType, patchData []byte) error
 	GetNetworkAttachmentDefinition(namespace, name string) (*netapi.NetworkAttachmentDefinition, error)
