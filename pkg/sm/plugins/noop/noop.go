@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -62,6 +63,18 @@ func (p *plugin) ListGuidsInUse() ([]string, error) {
 func (p *plugin) SetConfig(config map[string]interface{}) error {
 	log.Info().Msg("noop Plugin SetConfig()")
 	return nil
+}
+
+// GetLastPKeyUpdateTimestamp returns the current time for noop plugin (no real timestamp tracking)
+func (p *plugin) GetLastPKeyUpdateTimestamp() (time.Time, error) {
+	log.Info().Msg("noop Plugin GetLastPKeyUpdateTimestamp()")
+	return time.Now(), nil
+}
+
+// GetServerTime() returns the current time for noop plugin (no real timestamp tracking)
+func (p *plugin) GetServerTime() (time.Time, error) {
+	log.Info().Msg("noop Plugin GetServerTime()")
+	return time.Now(), nil
 }
 
 // Initialize applies configs to plugin and return a subnet manager client

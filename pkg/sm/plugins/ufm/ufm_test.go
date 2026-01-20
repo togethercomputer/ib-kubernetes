@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -320,9 +321,9 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 			plugin, err := newUfmPlugin()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plugin).ToNot(BeNil())
-			Expect(plugin.conf.EnableIPOverIB).To(BeFalse())                    // Default should be false
-			Expect(plugin.conf.DefaultLimitedPartition).To(Equal(""))           // Default should be empty
-			Expect(plugin.conf.EnableIndex0ForPrimaryPkey).To(BeTrue())         // Default should be true
+			Expect(plugin.conf.EnableIPOverIB).To(BeFalse())            // Default should be false
+			Expect(plugin.conf.DefaultLimitedPartition).To(Equal(""))   // Default should be empty
+			Expect(plugin.conf.EnableIndex0ForPrimaryPkey).To(BeTrue()) // Default should be true
 		})
 		It("newUfmPlugin with explicit false EnableIPOverIB config", func() {
 			Expect(os.Setenv("UFM_USERNAME", "admin")).ToNot(HaveOccurred())
@@ -374,6 +375,109 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 
 			expectedGuids := []string{"02:00:00:00:00:00:00:3e", "02:00:0F:F0:00:FF:00:09", "02:00:00:00:00:00:00:00"}
 			Expect(guids).To(ConsistOf(expectedGuids))
+		})
+	})
+	Context("GetLastPKeyUpdateTimestamp", func() {
+		It("Get last update timestamp successfully with DD-MM-YYYY format (newer UFM)", func() {
+			testResponse := `{"last_updated": "19-01-2026, 20:34:50"}`
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(testResponse), nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			timestamp, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(timestamp.Year()).To(Equal(2026))
+			Expect(timestamp.Month()).To(Equal(time.January))
+			Expect(timestamp.Day()).To(Equal(19))
+			Expect(timestamp.Hour()).To(Equal(20))
+			Expect(timestamp.Minute()).To(Equal(34))
+			Expect(timestamp.Second()).To(Equal(50))
+		})
+		It("Get last update timestamp successfully with double-digit day", func() {
+			testResponse := `{"last_updated": "Thu Sep 13 11:42:39 UTC 2020"}`
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(testResponse), nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			timestamp, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(timestamp.Year()).To(Equal(2020))
+			Expect(timestamp.Month()).To(Equal(time.September))
+			Expect(timestamp.Day()).To(Equal(13))
+			Expect(timestamp.Hour()).To(Equal(11))
+			Expect(timestamp.Minute()).To(Equal(42))
+			Expect(timestamp.Second()).To(Equal(39))
+		})
+		It("Get last update timestamp successfully with single-digit day (padded)", func() {
+			testResponse := `{"last_updated": "Thu Sep  3 11:42:39 UTC 2020"}`
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(testResponse), nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			timestamp, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(timestamp.Year()).To(Equal(2020))
+			Expect(timestamp.Month()).To(Equal(time.September))
+			Expect(timestamp.Day()).To(Equal(3))
+		})
+		It("Get last update timestamp returns zero time when null", func() {
+			testResponse := `{"last_updated": null}`
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(testResponse), nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			timestamp, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(timestamp.IsZero()).To(BeTrue())
+		})
+		It("Get last update timestamp fails on network error", func() {
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return(nil, errors.New("network error"))
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			_, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to get PKey last updated timestamp"))
+		})
+		It("Get last update timestamp fails on invalid JSON", func() {
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(`invalid json`), nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			_, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to parse PKey last updated response"))
+		})
+		It("Get last update timestamp fails on invalid timestamp format", func() {
+			testResponse := `{"last_updated": "invalid-timestamp-format"}`
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(testResponse), nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			_, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to parse last_updated timestamp"))
+		})
+	})
+	Context("GetServerTime", func() {
+		It("Get server time successfully", func() {
+			expectedTime := time.Date(2024, time.January, 15, 10, 30, 0, 0, time.UTC)
+			client := &mocks.Client{}
+			client.On("GetServerTime", mock.Anything).Return(expectedTime, nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			serverTime, err := plugin.GetServerTime()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(serverTime).To(Equal(expectedTime))
+		})
+		It("Get server time fails on error", func() {
+			client := &mocks.Client{}
+			client.On("GetServerTime", mock.Anything).Return(time.Time{}, errors.New("connection refused"))
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			_, err := plugin.GetServerTime()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("connection refused"))
 		})
 	})
 })

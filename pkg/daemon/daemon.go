@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"sync"
 	"syscall"
 	"time"
 
@@ -38,12 +39,14 @@ type Daemon interface {
 }
 
 type daemon struct {
-	config            config.DaemonConfig
-	watcher           watcher.Watcher
-	kubeClient        k8sClient.Client
-	guidPool          guid.Pool
-	smClient          plugins.SubnetManagerClient
-	guidPodNetworkMap map[string]string // allocated guid mapped to the pod and network
+	config                        config.DaemonConfig
+	watcher                       watcher.Watcher
+	kubeClient                    k8sClient.Client
+	guidPool                      guid.Pool
+	smClient                      plugins.SubnetManagerClient
+	guidPodNetworkMap             map[string]string // allocated guid mapped to the pod and network
+	lastPkeyAPICallTimestamp      time.Time         // timestamp of the last initiated pkey modification API call
+	lastPkeyAPICallTimestampMutex sync.Mutex        // protects lastPkeyAPICallTimestamp
 }
 
 // Temporary struct used to proceed pods' networks
@@ -56,6 +59,68 @@ type podNetworkInfo struct {
 
 type networksMap struct {
 	theMap map[types.UID][]*v1.NetworkSelectionElement
+}
+
+// canProceedWithPkeyModification avoids making pkey modification calls before the previous call is completed.
+// It queries the SM's pkey last_updated timestamp and compares it to the last time the client has made a call to the pkey API.
+// If last_updated timestamp > stored API call timestamp, our previous operation likely completed and we can proceed.
+func (d *daemon) canProceedWithPkeyModification() bool {
+	d.lastPkeyAPICallTimestampMutex.Lock()
+	defer d.lastPkeyAPICallTimestampMutex.Unlock()
+	lastPkeyUpdateTimestamp, err := d.smClient.GetLastPKeyUpdateTimestamp()
+	lastAPICallTimestamp := d.lastPkeyAPICallTimestamp
+	if err != nil {
+		log.Warn().Msgf("failed to get SM pkey last_updated timestamp for canProceedWithPkeyModification check: %v", err)
+		// If we can't get the timestamp, don't proceed
+		return false
+	}
+
+	// SM returns null for last_updated when no PKey updates have been done yet
+	// In this case, we can proceed since there's nothing in progress
+	if lastPkeyUpdateTimestamp.IsZero() {
+		log.Debug().Msgf("SM pkey last_updated is null (no updates yet), proceeding with pkey modification call")
+		d.updateLastPkeyAPICallTimestamp()
+		return true
+	}
+
+	// First call from our side - no previous timestamp stored
+	if lastAPICallTimestamp.IsZero() {
+		log.Debug().Msgf("no previous timestamp stored locally, proceeding with SM call")
+		d.updateLastPkeyAPICallTimestamp()
+		return true
+	}
+
+	// Check if last_updated timestamp >= stored API call timestamp
+	// If the SM's last_updated has reached or passed our stored API call timestamp, our previous operation likely completed
+	if !lastPkeyUpdateTimestamp.Before(lastAPICallTimestamp) {
+		log.Debug().Msgf("SM pkey last_updated %v >= stored timestamp %v, proceeding",
+			lastPkeyUpdateTimestamp, lastAPICallTimestamp)
+		d.updateLastPkeyAPICallTimestamp()
+		return true
+	}
+
+	log.Info().Msgf("pkey last_updated %v < stored timestamp %v, skipping pkey modification call this cycle (previous op may still be in progress)",
+		lastPkeyUpdateTimestamp, lastAPICallTimestamp)
+	return false
+}
+
+// updateLastPkeyAPICallTimestamp updates the stored server side timestamp when a pkey modification API call was made.
+func (d *daemon) updateLastPkeyAPICallTimestamp() {
+	currentTimestamp, err := d.smClient.GetServerTime()
+	if err != nil {
+		log.Warn().Msgf("failed to get SM current time: %v", err)
+		return
+	}
+
+	if currentTimestamp.IsZero() {
+		log.Warn().Msg("failed to get SM current time: returned time is 0")
+		return
+	}
+
+	if currentTimestamp.After(d.lastPkeyAPICallTimestamp) {
+		d.lastPkeyAPICallTimestamp = currentTimestamp
+	}
+	log.Debug().Msgf("Updated last pkey modification timestamp to %v", currentTimestamp)
 }
 
 // Exponential backoff ~26 sec + 6 * <api call time>
@@ -424,6 +489,7 @@ func (d *daemon) processNetworkGUID(networkID string, spec *utils.IbSriovCniSpec
 		}
 	} else {
 		guidAddr, err = d.guidPool.GenerateGUID()
+		// TODO(Nik): This error handling is funky.  We sync the GUID pool but then don't re-assign a guidAddr so we're left with a 0 guid
 		if err != nil {
 			switch {
 			case errors.Is(err, guid.ErrGUIDPoolExhausted):
@@ -526,6 +592,12 @@ func (d *daemon) AddPeriodicUpdate() {
 	defer addMap.Unlock()
 	// Contains ALL pods' networks
 	netMap := networksMap{theMap: make(map[types.UID][]*v1.NetworkSelectionElement)}
+	// Pkey -> NetworkID -> GUID list (for batching pKey add operations)
+	pkeyToNetworkIdToGUIDs := make(map[int]map[string][]net.HardwareAddr)
+	// Pkey -> NetworkID -> passedPods
+	pkeyToNetworkIdToPassedPods := make(map[int]map[string][]*podNetworkInfo)
+
+	// Add map is indexed by networkID and the value is a list of creating pods using that network.
 	for networkID, podsInterface := range addMap.Items {
 		log.Info().Msgf("processing network networkID %s", networkID)
 		pods, ok := podsInterface.([]*kapi.Pod)
@@ -540,6 +612,7 @@ func (d *daemon) AddPeriodicUpdate() {
 			continue
 		}
 
+		// Fetch cni spec (for the pkey) and network name from the networkID
 		log.Info().Msgf("processing network networkID %s", networkID)
 		networkName, ibCniSpec, err := d.getIbSriovNetwork(networkID)
 		if err != nil {
@@ -548,6 +621,7 @@ func (d *daemon) AddPeriodicUpdate() {
 			continue
 		}
 
+		// Extract/generate GUIDs from the pods corresponding to the network
 		var guidList []net.HardwareAddr
 		var passedPods []*podNetworkInfo
 		for _, pod := range pods {
@@ -563,10 +637,12 @@ func (d *daemon) AddPeriodicUpdate() {
 				continue
 			}
 
-			// Add finalizer to pod since it now has a GUID that needs cleanup
+			// Add finalizer to pod since it now has a GUID that needs cleanup (GUID is allocated for the pod but has not been persisted to the pod yet)
+			// TODO(Nik): What happens if we fail to add the finalizer, does the GUID ever get GC'd?
 			if err = d.addPodFinalizer(pi.pod); err != nil {
 				log.Error().Msgf("failed to add finalizer to pod %s/%s: %v", pi.pod.Namespace, pi.pod.Name, err)
 				continue
+				// TODO(Nik): If a pod fails to add the finalizer, it doesn't get reprocessed
 			} else {
 				log.Info().Msgf("added finalizer %s to pod %s/%s",
 					PodGUIDFinalizer, pi.pod.Namespace, pi.pod.Name)
@@ -576,7 +652,7 @@ func (d *daemon) AddPeriodicUpdate() {
 			passedPods = append(passedPods, pi)
 		}
 		log.Info().Interface("pods", passedPods).Msg("Passed pods")
-		// Get configured PKEY for network and add the relevant POD GUIDs as members of the PKey via Subnet Manager
+
 		if ibCniSpec.PKey != "" && len(guidList) != 0 {
 			var pKey int
 			pKey, err = utils.ParsePKey(ibCniSpec.PKey)
@@ -585,39 +661,78 @@ func (d *daemon) AddPeriodicUpdate() {
 				continue
 			}
 
-			// Add GUIDs to pKeys (main and limited partition)
-			if err = d.addGUIDsToPKeyWithLimitedPartition(pKey, guidList); err != nil {
-				log.Error().Msgf("%v", err)
-				continue
+			// Add to pKey map for batched processing
+			if pkeyToNetworkIdToGUIDs[pKey] == nil {
+				pkeyToNetworkIdToGUIDs[pKey] = make(map[string][]net.HardwareAddr)
 			}
+			pkeyToNetworkIdToGUIDs[pKey][networkID] = guidList
+			if pkeyToNetworkIdToPassedPods[pKey] == nil {
+				pkeyToNetworkIdToPassedPods[pKey] = make(map[string][]*podNetworkInfo)
+			}
+			pkeyToNetworkIdToPassedPods[pKey][networkID] = passedPods
+		} else {
+			// If the network is not in a pKey, update the annotations now.
+			var removedGUIDList []net.HardwareAddr // Unused since we don't have a pKey to remove GUIDs from
+			for _, pi := range passedPods {
+				log.Info().Msgf("Updating annotations for the pod %s, network %s", pi.pod.Name, pi.ibNetwork.Name)
+				err = d.updatePodNetworkAnnotation(pi, &removedGUIDList)
+				if err != nil {
+					log.Error().Msgf("%v", err)
+				}
+			}
+			addMap.UnSafeRemove(networkID)
+		}
+	}
 
-			// Add finalizer to NetworkAttachmentDefinition
+	// Add all GUIDs to pKeys in UFM
+	for pKey, networkIDToGUIDs := range pkeyToNetworkIdToGUIDs {
+		// Gather all GUIDs across all networks for this pKey
+		guidsToAdd := make([]net.HardwareAddr, 0)
+		for networkID, guidList := range networkIDToGUIDs {
+			log.Debug().Msgf("adding guids: %v for networkID %s to pKey %d", guidList, networkID, pKey)
+			guidsToAdd = append(guidsToAdd, guidList...)
+		}
+
+		// Batch add GUIDs to pKey (main and limited partition)
+		if !d.canProceedWithPkeyModification() {
+			log.Warn().Msgf("previous pkey modification was not completed, requeuing")
+			continue
+		}
+		if err := d.addGUIDsToPKeyWithLimitedPartition(pKey, guidsToAdd); err != nil {
+			log.Error().Msgf("%v", err)
+			continue
+		}
+
+		// Add finalizer to NetworkAttachmentDefinition for each network
+		for networkID := range networkIDToGUIDs {
 			networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
 			if err := d.addNADFinalizer(networkNamespace, networkName); err != nil {
 				log.Error().Msgf("failed to add finalizer to NetworkAttachmentDefinition %s/%s: %v",
 					networkNamespace, networkName, err)
+				// TODO(Nik): Retry/continue?
 			} else {
 				log.Info().Msgf("added finalizer %s to NetworkAttachmentDefinition %s/%s",
 					GUIDInUFMFinalizer, networkNamespace, networkName)
 			}
 		}
 
-		// Update annotations for PODs that finished the previous steps successfully
-		var removedGUIDList []net.HardwareAddr
-		for _, pi := range passedPods {
-			log.Info().Msgf("Updating annotations for the pod %s, network %s", pi.pod.Name, pi.ibNetwork.Name)
-			err = d.updatePodNetworkAnnotation(pi, &removedGUIDList)
-			if err != nil {
-				log.Error().Msgf("%v", err)
+		// Update annotations for all pods across all networks in this pKey
+		var allRemovedGUIDs []net.HardwareAddr
+		for _, passedPods := range pkeyToNetworkIdToPassedPods[pKey] {
+			for _, pi := range passedPods {
+				log.Info().Msgf("Updating annotations for the pod %s, network %s", pi.pod.Name, pi.ibNetwork.Name)
+				var removedGUIDList []net.HardwareAddr
+				if err := d.updatePodNetworkAnnotation(pi, &removedGUIDList); err != nil {
+					log.Error().Msgf("%v", err)
+					// TODO(Nik): Retry/continue?
+				}
+				allRemovedGUIDs = append(allRemovedGUIDs, removedGUIDList...)
 			}
 		}
 
-		if ibCniSpec.PKey != "" && len(removedGUIDList) != 0 {
-			// Already check the parse above
-			pKey, _ := utils.ParsePKey(ibCniSpec.PKey)
-
-			// Remove GUIDs from pKeys (main and limited partition)
-			if err = d.removeGUIDsFromPKeyWithLimitedPartition(pKey, removedGUIDList); err != nil {
+		// Batch remove GUIDs from pKey if any were removed during annotation updates
+		if len(allRemovedGUIDs) != 0 {
+			if err := d.removeGUIDsFromPKeyWithLimitedPartition(pKey, allRemovedGUIDs); err != nil {
 				log.Warn().Msgf("%v", err)
 				continue
 			}
@@ -626,8 +741,12 @@ func (d *daemon) AddPeriodicUpdate() {
 			// It will only be removed during pod deletion when all pods using this NAD are cleaned up
 		}
 
-		addMap.UnSafeRemove(networkID)
+		// If all steps succeed, remove networkIDs from the addMap
+		for networkID := range networkIDToGUIDs {
+			addMap.UnSafeRemove(networkID)
+		}
 	}
+
 	log.Info().Msg("add periodic update finished")
 }
 
@@ -667,6 +786,11 @@ func (d *daemon) DeletePeriodicUpdate() {
 	_, deleteMap := d.watcher.GetHandler().GetResults()
 	deleteMap.Lock()
 	defer deleteMap.Unlock()
+	// Pkey -> NetworkID -> GUIDs
+	pkeyToNetworkIdToGUIDs := make(map[int]map[string][]net.HardwareAddr)
+	// maps GUID string -> pod
+	podGUIDMap := make(map[string]*kapi.Pod)
+	// Delete map is indexed by networkID and the value is a list of deleting pods using that network.
 	for networkID, podsInterface := range deleteMap.Items {
 		log.Info().Msgf("processing network networkID %s", networkID)
 		pods, ok := podsInterface.([]*kapi.Pod)
@@ -680,6 +804,7 @@ func (d *daemon) DeletePeriodicUpdate() {
 			continue
 		}
 
+		// Fetch cni spec (for the pkey) and network name from the networkID
 		networkName, ibCniSpec, err := d.getIbSriovNetwork(networkID)
 		if err != nil {
 			deleteMap.UnSafeRemove(networkID)
@@ -687,8 +812,8 @@ func (d *daemon) DeletePeriodicUpdate() {
 			continue
 		}
 
+		// Extract GUIDs from the pods corresponding to the network
 		var guidList []net.HardwareAddr
-		var podGUIDMap = make(map[string]*kapi.Pod) // maps GUID string to pod
 		var guidAddr net.HardwareAddr
 		for _, pod := range pods {
 			log.Debug().Msgf("pod namespace %s name %s", pod.Namespace, pod.Name)
@@ -709,28 +834,75 @@ func (d *daemon) DeletePeriodicUpdate() {
 				continue
 			}
 
-			// Remove GUIDs from pKeys (main and limited partition)
-			if err = d.removeGUIDsFromPKeyWithLimitedPartition(pKey, guidList); err != nil {
-				log.Warn().Msgf("%v", err)
-				continue
+			// Add guidList and networkID to pKey map for removal from pKey
+			if pkeyToNetworkIdToGUIDs[pKey] == nil {
+				pkeyToNetworkIdToGUIDs[pKey] = make(map[string][]net.HardwareAddr)
 			}
+			pkeyToNetworkIdToGUIDs[pKey][networkID] = guidList
+		} else {
+			// If the network is not in a pKey, remove it from the guidPool now.
+			for _, guidAddr := range guidList {
+				if err = d.guidPool.ReleaseGUID(guidAddr.String()); err != nil {
+					log.Error().Msgf("%v", err)
+					continue
+				}
+
+				delete(d.guidPodNetworkMap, guidAddr.String())
+
+				// Remove finalizer from pod after successfully cleaning up GUID
+				// TODO(Nik): This could be problematic if some are in a pkey and some aren't and they fail or split across batches.
+				if pod, exists := podGUIDMap[guidAddr.String()]; exists {
+					err = d.removePodFinalizer(pod)
+					if kerrors.IsNotFound(err) {
+						log.Warn().Msgf("attempted to remove finalizer from pod %s/%s that has already been deleted, nothing to do", pod.Namespace, pod.Name)
+					} else if err != nil {
+						log.Error().Msgf("failed to remove finalizer from pod %s/%s: %v", pod.Namespace, pod.Name, err)
+						// Continue?
+					} else {
+						log.Info().Msgf("removed finalizer %s from pod %s/%s",
+							PodGUIDFinalizer, pod.Namespace, pod.Name)
+					}
+				}
+			}
+			deleteMap.UnSafeRemove(networkID)
+		}
+	}
+
+	// Remove all guids for all networks
+	for pKey, networkIDToGUIDs := range pkeyToNetworkIdToGUIDs {
+		guidsToRelease := make([]net.HardwareAddr, 0)
+		for networkID, guidList := range networkIDToGUIDs {
+			log.Debug().Msgf("releasing guids: %v for networkID %s", guidList, networkID)
+			guidsToRelease = append(guidsToRelease, guidList...)
 		}
 
-		for _, guidAddr := range guidList {
-			if err = d.guidPool.ReleaseGUID(guidAddr.String()); err != nil {
+		// Remove GUIDs from pKeys (main and limited partition)
+		if !d.canProceedWithPkeyModification() {
+			log.Warn().Msgf("previous pkey modification was not completed, requeuing")
+			continue
+		}
+		if err := d.removeGUIDsFromPKeyWithLimitedPartition(pKey, guidsToRelease); err != nil {
+			log.Warn().Msgf("%v", err)
+			continue
+		}
+
+		// Release guids from the guidPool
+		for _, guidAddr := range guidsToRelease {
+			if err := d.guidPool.ReleaseGUID(guidAddr.String()); err != nil {
 				log.Error().Msgf("%v", err)
-				continue
+				continue // TODO(Nik): Double continue
 			}
 
 			delete(d.guidPodNetworkMap, guidAddr.String())
 
 			// Remove finalizer from pod after successfully cleaning up GUID
 			if pod, exists := podGUIDMap[guidAddr.String()]; exists {
-				err = d.removePodFinalizer(pod)
+				err := d.removePodFinalizer(pod)
 				if kerrors.IsNotFound(err) {
 					log.Warn().Msgf("attempted to remove finalizer from pod %s/%s that has already been deleted, nothing to do", pod.Namespace, pod.Name)
 				} else if err != nil {
 					log.Error().Msgf("failed to remove finalizer from pod %s/%s: %v", pod.Namespace, pod.Name, err)
+					// TODO(Nik): Retry/continue?
 				} else {
 					log.Info().Msgf("removed finalizer %s from pod %s/%s",
 						PodGUIDFinalizer, pod.Namespace, pod.Name)
@@ -739,16 +911,21 @@ func (d *daemon) DeletePeriodicUpdate() {
 		}
 
 		// Once all pod GUIDs in the batch have been handled, check if NAD finalizer can be safely removed
-		if ibCniSpec.PKey != "" && len(guidList) != 0 {
+		for networkID := range networkIDToGUIDs {
 			networkNamespace, networkName, _ := utils.ParseNetworkID(networkID)
 			if err := d.removeNADFinalizerIfSafe(networkNamespace, networkName); err != nil {
 				log.Error().Msgf("failed to remove NAD finalizer for %s/%s: %v", networkNamespace, networkName, err)
+				// TODO(Nik): Retry/continue?
 			} else {
 				log.Info().Msgf("checked and potentially removed finalizer %s from NetworkAttachmentDefinition %s/%s",
 					GUIDInUFMFinalizer, networkNamespace, networkName)
 			}
 		}
-		deleteMap.UnSafeRemove(networkID)
+
+		// If all steps succeed, remove networkIDs from the deleteMap
+		for networkID := range networkIDToGUIDs {
+			deleteMap.UnSafeRemove(networkID)
+		}
 	}
 
 	log.Info().Msg("delete periodic update finished")
