@@ -21,6 +21,7 @@ type ufmPlugin struct {
 	SpecVersion string
 	conf        UFMConfig
 	client      httpDriver.Client
+	smLocation  *time.Location // cached SM server timezone for timestamp parsing
 }
 
 const (
@@ -39,6 +40,7 @@ type UFMConfig struct {
 	EnableIPOverIB             bool   `env:"ENABLE_IP_OVER_IB" envDefault:"false"`             // Enable IP over IB functionality
 	DefaultLimitedPartition    string `env:"DEFAULT_LIMITED_PARTITION"`                        // Default partition key for limited membership
 	EnableIndex0ForPrimaryPkey bool   `env:"ENABLE_INDEX0_FOR_PRIMARY_PKEY" envDefault:"true"` // Enable index0 for primary pkey GUID additions
+	SMTimezone                 string `env:"SM_TIMEZONE" envDefault:"UTC"`                     // IANA timezone of the SM server (e.g. "America/New_York")
 }
 
 func newUfmPlugin() (*ufmPlugin, error) {
@@ -307,6 +309,18 @@ func (u *ufmPlugin) SetConfig(config map[string]interface{}) error {
 		}
 	}
 
+	if smTimezone, exists := config["SM_TIMEZONE"]; exists {
+		if strVal, ok := smTimezone.(string); ok {
+			u.conf.SMTimezone = strVal
+			loc, err := time.LoadLocation(strVal)
+			if err != nil {
+				return fmt.Errorf("invalid SM_TIMEZONE %q: %v", strVal, err)
+			}
+			u.smLocation = loc
+			log.Info().Msgf("UFM plugin: SMTimezone set to %s via SetConfig", strVal)
+		}
+	}
+
 	return nil
 }
 
@@ -316,6 +330,9 @@ type PKeyLastUpdatedResponse struct {
 }
 
 // GetLastPKeyUpdateTimestamp returns the pkey last updated timestamp from UFM.
+// UFM may return timestamps with explicit timezone info (older format) or in server-local
+// time without timezone info (newer format). We try tz-aware formats first; if none match,
+// we fall back to parsing in the SM's local timezone (smLocation) and converting to UTC.
 func (u *ufmPlugin) GetLastPKeyUpdateTimestamp() (time.Time, error) {
 	response, err := u.client.Get(u.buildURL("/ufmRest/resources/pkeys/last_updated"), http.StatusOK)
 	if err != nil {
@@ -333,17 +350,32 @@ func (u *ufmPlugin) GetLastPKeyUpdateTimestamp() (time.Time, error) {
 		return time.Time{}, nil
 	}
 
-	// Try multiple timestamp formats that UFM might return
-	timestampFormats := []string{
-		"02-01-2006, 15:04:05",         // DD-MM-YYYY, HH:MM:SS (newer UFM format)
+	// Try multiple timestamp formats that UFM might return.
+	// Prefer formats with timezone info first so we use UFM's explicit TZ when present.
+	// Fall back to formats without TZ, parsed in SM's local timezone (SMTimezone).
+	tzFormats := []string{
 		"Mon Jan  2 15:04:05 MST 2006", // Thu Sep  3 11:42:39 UTC 2020 (double space for single-digit day)
 		"Mon Jan 2 15:04:05 MST 2006",  // Thu Sep 13 11:42:39 UTC 2020 (single space for double-digit day)
 	}
-
-	for _, format := range timestampFormats {
+	for _, format := range tzFormats {
 		lastUpdated, err := time.Parse(format, *lastUpdatedResp.LastUpdated)
 		if err == nil {
 			return lastUpdated, nil
+		}
+	}
+
+	smLocation := u.smLocation
+	if smLocation == nil {
+		smLocation = time.UTC
+	}
+
+	localFormats := []string{
+		"02-01-2006, 15:04:05", // DD-MM-YYYY, HH:MM:SS (newer UFM format)
+	}
+	for _, format := range localFormats {
+		lastUpdated, err := time.ParseInLocation(format, *lastUpdatedResp.LastUpdated, smLocation)
+		if err == nil {
+			return lastUpdated.UTC(), nil
 		}
 	}
 

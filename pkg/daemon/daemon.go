@@ -180,6 +180,7 @@ func NewDaemon() (Daemon, error) {
 		"ENABLE_IP_OVER_IB":              daemonConfig.EnableIPOverIB,
 		"DEFAULT_LIMITED_PARTITION":      daemonConfig.DefaultLimitedPartition,
 		"ENABLE_INDEX0_FOR_PRIMARY_PKEY": daemonConfig.EnableIndex0ForPrimaryPkey,
+		"SM_TIMEZONE":                    daemonConfig.SMTimezone,
 	}
 	if err := smClient.SetConfig(pluginConfig); err != nil {
 		log.Warn().Msgf("Failed to set configuration on subnet manager plugin: %v", err)
