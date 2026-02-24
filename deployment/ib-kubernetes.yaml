@@ -15,7 +15,14 @@ rules:
     verbs: ["get", "list", "patch", "watch"]
   - apiGroups: ["k8s.cni.cncf.io"]
     resources: ["*"]
-    verbs: ["get"]
+    verbs: ["get", "list", "watch"]
+  # Leader election permissions
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "create", "update", "patch", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -42,8 +49,11 @@ metadata:
 spec:
   progressDeadlineSeconds: 600
   strategy:
-    type: Recreate
-  replicas: 1
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  replicas: 2
   selector:
     matchLabels:
       name: ib-kubernetes
@@ -82,16 +92,38 @@ spec:
                     operator: In
                     values:
                       - "linux"
+        # Pod anti-affinity to ensure pods are not scheduled on the same node
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: name
+                    operator: In
+                    values:
+                      - ib-kubernetes
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: ib-kubernetes
           image: mellanox/ib-kubernetes
           imagePullPolicy: IfNotPresent
-          command: ["/usr/bin/ib-kubernetes"]
+          command: ["/ib-kubernetes"]
           resources:
             requests:
               cpu: 100m
               memory: 300Mi
           env:
+            - name: K8S_NODE
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
             - name: DAEMON_SM_PLUGIN
               valueFrom:
                 configMapKeyRef:

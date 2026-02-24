@@ -1,3 +1,19 @@
+// Copyright 2025 NVIDIA CORPORATION & AFFILIATES
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -8,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/caarlos0/env/v11"
+	env "github.com/caarlos0/env/v11"
 	"github.com/rs/zerolog/log"
 
 	httpDriver "github.com/Mellanox/ib-kubernetes/pkg/drivers/http"
@@ -212,7 +228,7 @@ type PKey struct {
 }
 
 // ListGuidsInUse returns all guids currently in use by pKeys
-func (u *ufmPlugin) ListGuidsInUse() ([]string, error) {
+func (u *ufmPlugin) ListGuidsInUse() (map[string]string, error) {
 	response, err := u.client.Get(u.buildURL("/ufmRest/resources/pkeys/?guids_data=true"), http.StatusOK)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get the list of guids: %v", err)
@@ -224,12 +240,12 @@ func (u *ufmPlugin) ListGuidsInUse() ([]string, error) {
 		return nil, fmt.Errorf("failed to get the list of guids: %v", err)
 	}
 
-	var guids []string
+	guids := make(map[string]string)
 
 	for pkey := range pKeys {
 		pkeyData := pKeys[pkey]
 		for _, guidData := range pkeyData.Guids {
-			guids = append(guids, convertToMacAddr(guidData.GUIDValue))
+			guids[convertToMacAddr(guidData.GUIDValue)] = pkey
 		}
 	}
 	return guids, nil

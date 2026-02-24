@@ -1,3 +1,5 @@
+include make/license.mk
+
 # Package related
 BINARY_NAME=ib-kubernetes
 PACKAGE=ib-kubernetes
@@ -48,11 +50,12 @@ GO_PLUGIN_LDFLAGS ?= $(PLUGIN_VERSION_LDFLAGS)
 GO_TAGS ?= -tags no_openssl
 GO_GCFLAGS ?=
 export GOPATH?=$(shell go env GOPATH)
+GOPROXY ?= $(shell go env GOPROXY)
 
 # Go tools
 GO      = go
 
-TIMEOUT = 15
+TIMEOUT = 30
 Q = $(if $(filter 1,$V),,@)
 
 .PHONY: all
@@ -69,7 +72,7 @@ $(PLUGINSBUILDDIR): ; $(info Creating plugins build directory...)
 
 # Tools
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
-GOLANGCI_LINT_VERSION ?= v1.59.1
+GOLANGCI_LINT_VERSION ?= v1.64.7
 .PHONY: golangci-lint ## Download golangci-lint locally if necessary.
 golangci-lint:
 	@[ -f $(GOLANGCI_LINT) ] || { \
@@ -85,7 +88,7 @@ $(GOVERALLS): | $(BIN_DIR); $(info  building goveralls...)
 	$(call go-install-tool,$(GOVERALLS),github.com/mattn/goveralls@$(GOVERALLS_VERSION)
 
 ENVTEST := $(BIN_DIR)/setup-envtest
-ENVTEST_VERSION := latest
+ENVTEST_VERSION := release-0.21
 ENVTEST_K8S_VERSION := 1.30.0
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download envtest if necessary

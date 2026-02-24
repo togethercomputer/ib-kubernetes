@@ -1,3 +1,19 @@
+// Copyright 2025 NVIDIA CORPORATION & AFFILIATES
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package guid
 
 import (
@@ -13,7 +29,7 @@ type Pool interface {
 	// AllocateGUID allocate given guid if in range or
 	// allocate the next free guid in the range if no given guid.
 	// It returns the allocated guid or error if range is full.
-	AllocateGUID(string) error
+	AllocateGUID(string, string) error
 
 	GenerateGUID() (GUID, error)
 
@@ -22,16 +38,18 @@ type Pool interface {
 	ReleaseGUID(string) error
 
 	// Reset clears the current pool and resets it with given values (may be empty)
-	Reset(guids []string) error
+	Reset(guids map[string]string) error
+
+	Get(string) (string, error)
 }
 
 var ErrGUIDPoolExhausted = errors.New("GUID pool is exhausted")
 
 type guidPool struct {
-	rangeStart  GUID          // first guid in range
-	rangeEnd    GUID          // last guid in range
-	currentGUID GUID          // last given guid
-	guidPoolMap map[GUID]bool // allocated guid map and status
+	rangeStart  GUID            // first guid in range
+	rangeEnd    GUID            // last guid in range
+	currentGUID GUID            // last given guid
+	guidPoolMap map[GUID]string // allocated guid map and pkey
 }
 
 func NewPool(conf *config.GUIDPoolConfig) (Pool, error) {
@@ -52,20 +70,21 @@ func NewPool(conf *config.GUIDPoolConfig) (Pool, error) {
 		rangeStart:  rangeStart,
 		rangeEnd:    rangeEnd,
 		currentGUID: rangeStart,
-		guidPoolMap: map[GUID]bool{},
+		guidPoolMap: map[GUID]string{},
 	}, nil
 }
 
 // Reset clears the current pool and resets it with given values (may be empty)
-func (p *guidPool) Reset(guids []string) error {
+func (p *guidPool) Reset(guids map[string]string) error {
 	log.Debug().Msg("resetting guid pool")
 
-	p.guidPoolMap = map[GUID]bool{}
+	p.guidPoolMap = map[GUID]string{}
 	if guids == nil {
 		return nil
 	}
 
-	for _, guid := range guids {
+	for guid := range guids {
+		pkey := guids[guid]
 		guidInRange, err := p.isGUIDStringInRange(guid)
 		if err != nil {
 			log.Debug().Msgf("error validating GUID: %s: %v", guid, err)
@@ -126,7 +145,16 @@ func (p *guidPool) ReleaseGUID(guid string) error {
 	return nil
 }
 
-func (p *guidPool) AllocateGUID(guid string) error {
+func (p *guidPool) Get(guid string) (string, error) {
+	guidAddr, err := ParseGUID(guid)
+	if err != nil {
+		return "", err
+	}
+	pkey := p.guidPoolMap[guidAddr]
+	return pkey, nil
+}
+
+func (p *guidPool) AllocateGUID(guid string, pkey string) error {
 	log.Debug().Msgf("allocating guid %s", guid)
 
 	guidAddr, err := ParseGUID(guid)
@@ -142,7 +170,7 @@ func (p *guidPool) AllocateGUID(guid string) error {
 		return fmt.Errorf("failed to allocate requested guid %s, already allocated", guid)
 	}
 
-	p.guidPoolMap[guidAddr] = true
+	p.guidPoolMap[guidAddr] = pkey
 	return nil
 }
 

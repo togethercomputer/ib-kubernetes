@@ -1,3 +1,19 @@
+// Copyright 2025 NVIDIA CORPORATION & AFFILIATES
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package utils
 
 import (
@@ -19,6 +35,7 @@ type IbSriovCniSpec struct {
 
 const (
 	InfiniBandAnnotation    = "mellanox.infiniband.app"
+	PkeyAnnotation          = "pkey"
 	ConfiguredInfiniBandPod = "configured"
 	InfiniBandSriovCni      = "ib-sriov"
 )
@@ -43,6 +60,11 @@ func PodIsRunning(pod *kapi.Pod) bool {
 	return pod.Status.Phase == kapi.PodRunning
 }
 
+// PodIsFinished check if pod is in finished
+func PodIsFinished(pod *kapi.Pod) bool {
+	return pod.Status.Phase == kapi.PodSucceeded || pod.Status.Phase == kapi.PodFailed
+}
+
 // IsPodNetworkConfiguredWithInfiniBand check if pod is already InfiniBand supported
 func IsPodNetworkConfiguredWithInfiniBand(network *v1.NetworkSelectionElement) bool {
 	if network == nil || network.CNIArgs == nil {
@@ -56,6 +78,27 @@ func IsPodNetworkConfiguredWithInfiniBand(network *v1.NetworkSelectionElement) b
 func PodNetworkHasGUID(network *v1.NetworkSelectionElement) bool {
 	_, err := GetPodNetworkGUID(network)
 	return err == nil
+}
+
+// GetPodNetworkPkey return network cni-args pkey field
+func GetPodNetworkPkey(network *v1.NetworkSelectionElement) (string, error) {
+	if network == nil {
+		return "", fmt.Errorf("network element is nil")
+	}
+
+	if network.CNIArgs == nil {
+		return "", fmt.Errorf(
+			"network \"cni-arg\" is missing from network %+v", network)
+	}
+
+	cniArgs := *network.CNIArgs
+	pkey, exist := cniArgs["pkey"]
+	if !exist {
+		return "", fmt.Errorf(
+			"no \"pkey\" field in \"cni-arg\" in network %+v", network)
+	}
+
+	return pkey.(string), nil
 }
 
 // GetPodNetworkGUID return network cni-args guid field
@@ -157,6 +200,25 @@ func GetPodNetwork(networks []*v1.NetworkSelectionElement, networkName string) (
 	return nil, fmt.Errorf("network %s not found", networkName)
 }
 
+// GetAllPodNetworks returns all networks with the specified name (handles multiple interfaces)
+func GetAllPodNetworks(
+	networks []*v1.NetworkSelectionElement, networkName string,
+) ([]*v1.NetworkSelectionElement, error) {
+	var matchingNetworks []*v1.NetworkSelectionElement
+
+	for _, network := range networks {
+		if network.Name == networkName {
+			matchingNetworks = append(matchingNetworks, network)
+		}
+	}
+
+	if len(matchingNetworks) == 0 {
+		return nil, fmt.Errorf("network %s not found", networkName)
+	}
+
+	return matchingNetworks, nil
+}
+
 // ParsePKey returns parsed PKey from string
 func ParsePKey(pKey string) (int, error) {
 	match := regexp.MustCompile(`0[xX]\d+`)
@@ -189,4 +251,9 @@ func GenerateNetworkID(network *v1.NetworkSelectionElement) string {
 
 func GeneratePodNetworkID(pod *kapi.Pod, networkID string) string {
 	return string(pod.UID) + "_" + networkID
+}
+
+// GeneratePodNetworkInterfaceID generates unique ID per network interface (handles multiple interfaces)
+func GeneratePodNetworkInterfaceID(pod *kapi.Pod, networkID string, interfaceName string) string {
+	return string(pod.UID) + "_" + networkID + "_" + interfaceName
 }
