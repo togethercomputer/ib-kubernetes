@@ -95,5 +95,22 @@ var _ = Describe("Configuration", func() {
 			err := dc.ValidateConfig()
 			Expect(err).ToNot(HaveOccurred())
 		})
+		It("Validate configuration with valid SM_TIMEZONE", func() {
+			dc := &DaemonConfig{
+				PeriodicUpdate: 10,
+				Plugin:         "ufm",
+				SMTimezone:     "America/New_York"}
+			err := dc.ValidateConfig()
+			Expect(err).ToNot(HaveOccurred())
+		})
+		It("Validate configuration with invalid SM_TIMEZONE", func() {
+			dc := &DaemonConfig{
+				PeriodicUpdate: 10,
+				Plugin:         "ufm",
+				SMTimezone:     "Fake/Timezone"}
+			err := dc.ValidateConfig()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid SM_TIMEZONE"))
+		})
 	})
 })

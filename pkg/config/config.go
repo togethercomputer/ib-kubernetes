@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/rs/zerolog/log"
@@ -21,6 +22,11 @@ type DaemonConfig struct {
 	EnableIPOverIB bool `env:"ENABLE_IP_OVER_IB" envDefault:"false"`
 	// Enable index0 for primary pkey GUID additions
 	EnableIndex0ForPrimaryPkey bool `env:"ENABLE_INDEX0_FOR_PRIMARY_PKEY" envDefault:"true"`
+	// IANA timezone of the SM server's local time. UFM returns timestamps in local server time
+	// without timezone info. This is used to interpret those timestamps correctly for comparison
+	// with UTC timestamps from GetServerTime().
+	// Example: "America/New_York", "America/Los_Angeles", "UTC" (default).
+	SMTimezone string `env:"SM_TIMEZONE" envDefault:"UTC"`
 }
 
 type GUIDPoolConfig struct {
@@ -57,6 +63,13 @@ func (dc *DaemonConfig) ReadConfig() error {
 		log.Info().Msg("Default limited partition is not set.")
 	}
 
+	// If SM timezone is set - log at startup
+	if dc.SMTimezone != "" {
+		log.Info().Msgf("SM timezone is set to %s.", dc.SMTimezone)
+	} else {
+		log.Info().Msg("SM timezone is not set.")
+	}
+
 	return err
 }
 
@@ -69,5 +82,10 @@ func (dc *DaemonConfig) ValidateConfig() error {
 	if dc.Plugin == "" {
 		return fmt.Errorf("no plugin selected")
 	}
+
+	if _, err := time.LoadLocation(dc.SMTimezone); err != nil {
+		return fmt.Errorf("invalid SM_TIMEZONE %q: %v", dc.SMTimezone, err)
+	}
+
 	return nil
 }

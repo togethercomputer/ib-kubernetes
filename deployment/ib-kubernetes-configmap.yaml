@@ -11,3 +11,4 @@ data:
   # DEFAULT_LIMITED_PARTITION: "0x0001" # optional
   ENABLE_IP_OVER_IB: "false" # default false
   ENABLE_INDEX0_FOR_PRIMARY_PKEY: "true" # default true
+  # SM_TIMEZONE: "UTC" # optional; IANA timezone of the UFM server (e.g. "America/New_York"). Default: "UTC"

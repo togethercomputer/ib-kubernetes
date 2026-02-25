@@ -169,3 +169,9 @@ spec:
                   key: ENABLE_INDEX0_FOR_PRIMARY_PKEY
                   name: ib-kubernetes-config
                   optional: true
+            - name: SM_TIMEZONE
+              valueFrom:
+                configMapKeyRef:
+                  key: SM_TIMEZONE
+                  name: ib-kubernetes-config
+                  optional: true
