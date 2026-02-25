@@ -144,7 +144,7 @@ test: | plugins; $(info  running $(NAME:%=% )tests...) @ ## Run tests
 	$Q $(GO) test $(GOFLAGS) -timeout $(TIMEOUT)s $(ARGS) ./...
 
 .PHONY: test-coverage
-test-coverage: | plugins-coverage envtest gocovmerge gcov2lcov ## Run coverage tests
+test-coverage: | plugins-coverage envtest ## Run coverage tests
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(BIN_DIR) -p path)" go test -cover -covermode=$(COVER_MODE) -coverprofile=$(COVER_PROFILE) $(PKGS)
 
 # Container image

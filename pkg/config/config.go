@@ -50,7 +50,9 @@ func (dc *DaemonConfig) ReadConfig() error {
 
 	// If default limited partition is set - log at startup
 	if dc.DefaultLimitedPartition != "" {
-		log.Info().Msgf("Default limited partition is set to %s. New GUIDs will be added as limited members to this partition.", dc.DefaultLimitedPartition)
+		log.Info().Msgf("Default limited partition is set to %s."+
+			" New GUIDs will be added as limited members to this partition.",
+			dc.DefaultLimitedPartition)
 	} else {
 		log.Info().Msg("Default limited partition is not set.")
 	}

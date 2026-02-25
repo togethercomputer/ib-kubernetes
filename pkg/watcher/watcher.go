@@ -10,9 +10,7 @@ import (
 	resEventHandler "github.com/Mellanox/ib-kubernetes/pkg/watcher/handler"
 )
 
-var (
-	kubevirtSelectorString = SelectorMustValidateFromSet(labels.Set{"kubevirt.io": "virt-launcher"}).String()
-)
+var kubevirtSelectorString = SelectorMustValidateFromSet(labels.Set{"kubevirt.io": "virt-launcher"}).String()
 
 type StopFunc func()
 
@@ -31,10 +29,10 @@ type watcher struct {
 func NewWatcher(eventHandler resEventHandler.ResourceEventHandler, client k8sClient.Client) Watcher {
 	resource := eventHandler.GetResourceObject().GetObjectKind().GroupVersionKind().Kind
 	filterByKubevirtLabel := func(options *metav1.ListOptions) {
-
 		options.LabelSelector = kubevirtSelectorString
 	}
-	watchList := cache.NewFilteredListWatchFromClient(client.GetRestClient(), resource, kapi.NamespaceAll, filterByKubevirtLabel)
+	watchList := cache.NewFilteredListWatchFromClient(
+		client.GetRestClient(), resource, kapi.NamespaceAll, filterByKubevirtLabel)
 	return &watcher{eventHandler: eventHandler, watchList: watchList}
 }
 
@@ -58,7 +56,8 @@ func (w *watcher) GetHandler() resEventHandler.ResourceEventHandler {
 	return w.eventHandler
 }
 
-// SelectorMustValidateFromSet acts like regex.MustCompile for labels.Selector objects.  It will attempt to validate the selector from the label set and panic if it fails.
+// SelectorMustValidateFromSet acts like regex.MustCompile for labels.Selector objects.
+// It will attempt to validate the selector from the label set and panic if it fails.
 func SelectorMustValidateFromSet(set labels.Set) labels.Selector {
 	selector, err := labels.ValidatedSelectorFromSet(set)
 	if err != nil {
