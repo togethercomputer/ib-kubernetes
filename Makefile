@@ -175,6 +175,6 @@ define go-install-tool
 @[ -f $(1) ] || { \
 set -e ;\
 echo "Downloading $(2)" ;\
-GOBIN=$(BIN_DIR) go install $(2) ;\
+GOBIN=$(BIN_DIR) GOTOOLCHAIN=auto go install $(2) ;\
 }
 endef
