@@ -27,18 +27,19 @@ const (
 	pluginName  = "ufm"
 	specVersion = "1.0"
 	httpsProto  = "https"
+	trueStr     = "true"
 )
 
 type UFMConfig struct {
-	Username                   string `env:"UFM_USERNAME"`                                     // Username of ufm
-	Password                   string `env:"UFM_PASSWORD"`                                     // Password of ufm
-	Address                    string `env:"UFM_ADDRESS"`                                      // IP address or hostname of ufm server
-	Port                       int    `env:"UFM_PORT"`                                         // REST API port of ufm
-	HTTPSchema                 string `env:"UFM_HTTP_SCHEMA"`                                  // http or https
-	Certificate                string `env:"UFM_CERTIFICATE"`                                  // Certificate of ufm
-	EnableIPOverIB             bool   `env:"ENABLE_IP_OVER_IB" envDefault:"false"`             // Enable IP over IB functionality
-	DefaultLimitedPartition    string `env:"DEFAULT_LIMITED_PARTITION"`                        // Default partition key for limited membership
-	EnableIndex0ForPrimaryPkey bool   `env:"ENABLE_INDEX0_FOR_PRIMARY_PKEY" envDefault:"true"` // Enable index0 for primary pkey GUID additions
+	Username                   string `env:"UFM_USERNAME"`
+	Password                   string `env:"UFM_PASSWORD"`
+	Address                    string `env:"UFM_ADDRESS"`
+	Port                       int    `env:"UFM_PORT"`
+	HTTPSchema                 string `env:"UFM_HTTP_SCHEMA"`
+	Certificate                string `env:"UFM_CERTIFICATE"`
+	EnableIPOverIB             bool   `env:"ENABLE_IP_OVER_IB"              envDefault:"false"`
+	DefaultLimitedPartition    string `env:"DEFAULT_LIMITED_PARTITION"`
+	EnableIndex0ForPrimaryPkey bool   `env:"ENABLE_INDEX0_FOR_PRIMARY_PKEY" envDefault:"true"`
 }
 
 func newUfmPlugin() (*ufmPlugin, error) {
@@ -48,9 +49,11 @@ func newUfmPlugin() (*ufmPlugin, error) {
 	}
 
 	// Debug logging for environment variable parsing
-	log.Info().Msgf("UFM plugin: Environment variable ENABLE_IP_OVER_IB parsed as: %t", ufmConf.EnableIPOverIB)
-	log.Info().Msgf("UFM plugin: Environment variable DEFAULT_LIMITED_PARTITION parsed as: '%s'", ufmConf.DefaultLimitedPartition)
-	log.Info().Msgf("UFM plugin: Environment variable ENABLE_INDEX0_FOR_PRIMARY_PKEY parsed as: %t", ufmConf.EnableIndex0ForPrimaryPkey)
+	log.Info().Msgf("UFM plugin: ENABLE_IP_OVER_IB=%t", ufmConf.EnableIPOverIB)
+	log.Info().Msgf("UFM plugin: DEFAULT_LIMITED_PARTITION='%s'",
+		ufmConf.DefaultLimitedPartition)
+	log.Info().Msgf("UFM plugin: ENABLE_INDEX0_FOR_PRIMARY_PKEY=%t",
+		ufmConf.EnableIndex0ForPrimaryPkey)
 
 	if ufmConf.Username == "" || ufmConf.Password == "" || ufmConf.Address == "" {
 		return nil, fmt.Errorf("missing one or more required fileds for ufm [\"username\", \"password\", \"address\"]")
@@ -284,7 +287,7 @@ func (u *ufmPlugin) SetConfig(config map[string]interface{}) error {
 			log.Info().Msgf("UFM plugin: EnableIPOverIB set to %t via SetConfig", boolVal)
 		} else if strVal, ok := enableIPOverIB.(string); ok {
 			// Handle string values like "true", "false"
-			u.conf.EnableIPOverIB = strVal == "true"
+			u.conf.EnableIPOverIB = strVal == trueStr
 			log.Info().Msgf("UFM plugin: EnableIPOverIB set to %t via SetConfig (from string %s)", u.conf.EnableIPOverIB, strVal)
 		}
 	}
@@ -302,8 +305,9 @@ func (u *ufmPlugin) SetConfig(config map[string]interface{}) error {
 			log.Info().Msgf("UFM plugin: EnableIndex0ForPrimaryPkey set to %t via SetConfig", boolVal)
 		} else if strVal, ok := enableIndex0ForPrimaryPkey.(string); ok {
 			// Handle string values like "true", "false"
-			u.conf.EnableIndex0ForPrimaryPkey = strVal == "true"
-			log.Info().Msgf("UFM plugin: EnableIndex0ForPrimaryPkey set to %t via SetConfig (from string %s)", u.conf.EnableIndex0ForPrimaryPkey, strVal)
+			u.conf.EnableIndex0ForPrimaryPkey = strVal == trueStr
+			log.Info().Msgf("UFM plugin: EnableIndex0ForPrimaryPkey set to %t via SetConfig (from string %s)",
+				u.conf.EnableIndex0ForPrimaryPkey, strVal)
 		}
 	}
 
@@ -347,7 +351,9 @@ func (u *ufmPlugin) GetLastPKeyUpdateTimestamp() (time.Time, error) {
 		}
 	}
 
-	return time.Time{}, fmt.Errorf("failed to parse last_updated timestamp %q: no matching format found", *lastUpdatedResp.LastUpdated)
+	return time.Time{}, fmt.Errorf(
+		"failed to parse last_updated timestamp %q: no matching format found",
+		*lastUpdatedResp.LastUpdated)
 }
 
 // GetServerTime returns the current time on the UFM server.
