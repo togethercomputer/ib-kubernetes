@@ -458,6 +458,93 @@ var _ = Describe("Ufm Subnet Manager Client plugin", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to parse last_updated timestamp"))
 		})
+		It("timezone-aware format takes precedence and ignores SMTimezone", func() {
+			// When UFM returns a string with timezone (e.g. UTC), we parse it as-is.
+			// SMTimezone should not be used for this path.
+			testResponse := `{"last_updated": "Thu Sep 13 11:42:39 UTC 2020"}`
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(testResponse), nil)
+
+			nyLoc, _ := time.LoadLocation("America/New_York")
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{SMTimezone: "America/New_York"}, smLocation: nyLoc}
+			timestamp, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).ToNot(HaveOccurred())
+			// Result must be the instant in UTC (11:42:39 UTC), not interpreted in Eastern
+			Expect(timestamp.UTC().Year()).To(Equal(2020))
+			Expect(timestamp.UTC().Month()).To(Equal(time.September))
+			Expect(timestamp.UTC().Day()).To(Equal(13))
+			Expect(timestamp.UTC().Hour()).To(Equal(11))
+			Expect(timestamp.UTC().Minute()).To(Equal(42))
+			Expect(timestamp.UTC().Second()).To(Equal(39))
+		})
+		It("local format (DD-MM-YYYY) is parsed using SMTimezone and converted to UTC", func() {
+			// 19-01-2026 15:34:50 in America/New_York (EST, UTC-5) = 20:34:50 UTC
+			testResponse := `{"last_updated": "19-01-2026, 15:34:50"}`
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(testResponse), nil)
+
+			nyLoc, _ := time.LoadLocation("America/New_York")
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{SMTimezone: "America/New_York"}, smLocation: nyLoc}
+			timestamp, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(timestamp.Year()).To(Equal(2026))
+			Expect(timestamp.Month()).To(Equal(time.January))
+			Expect(timestamp.Day()).To(Equal(19))
+			Expect(timestamp.Hour()).To(Equal(20))
+			Expect(timestamp.Minute()).To(Equal(34))
+			Expect(timestamp.Second()).To(Equal(50))
+		})
+		It("nil smLocation falls back to UTC for local format", func() {
+			// If SetConfig was never called, smLocation is nil.
+			// Local-format timestamps should be parsed as UTC.
+			testResponse := `{"last_updated": "19-01-2026, 15:34:50"}`
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(testResponse), nil)
+
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{}}
+			timestamp, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).ToNot(HaveOccurred())
+			// With no timezone set, should be interpreted as UTC (no offset)
+			Expect(timestamp.Hour()).To(Equal(15))
+		})
+		It("DST is handled automatically (summer EDT = UTC-4)", func() {
+			// 15-07-2026 15:00:00 in America/New_York during July = EDT (UTC-4) = 19:00:00 UTC
+			testResponse := `{"last_updated": "15-07-2026, 15:00:00"}`
+			client := &mocks.Client{}
+			client.On("Get", mock.Anything, mock.Anything).Return([]byte(testResponse), nil)
+
+			nyLoc, _ := time.LoadLocation("America/New_York")
+			plugin := &ufmPlugin{client: client, conf: UFMConfig{SMTimezone: "America/New_York"}, smLocation: nyLoc}
+			timestamp, err := plugin.GetLastPKeyUpdateTimestamp()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(timestamp.Year()).To(Equal(2026))
+			Expect(timestamp.Month()).To(Equal(time.July))
+			Expect(timestamp.Day()).To(Equal(15))
+			// EDT is UTC-4, so 15:00 local = 19:00 UTC
+			Expect(timestamp.Hour()).To(Equal(19))
+			Expect(timestamp.Minute()).To(Equal(0))
+		})
+	})
+	Context("SetConfig", func() {
+		It("SetConfig with valid SM_TIMEZONE caches smLocation", func() {
+			plugin := &ufmPlugin{conf: UFMConfig{}}
+			err := plugin.SetConfig(map[string]interface{}{
+				"SM_TIMEZONE": "America/New_York",
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plugin.conf.SMTimezone).To(Equal("America/New_York"))
+			Expect(plugin.smLocation).ToNot(BeNil())
+			Expect(plugin.smLocation.String()).To(Equal("America/New_York"))
+		})
+		It("SetConfig with invalid SM_TIMEZONE returns error", func() {
+			plugin := &ufmPlugin{conf: UFMConfig{}}
+			err := plugin.SetConfig(map[string]interface{}{
+				"SM_TIMEZONE": "Fake/Timezone",
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid SM_TIMEZONE"))
+			Expect(plugin.smLocation).To(BeNil())
+		})
 	})
 	Context("GetServerTime", func() {
 		It("Get server time successfully", func() {
