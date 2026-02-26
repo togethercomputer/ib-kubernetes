@@ -41,7 +41,7 @@ type UFMConfig struct {
 	EnableIPOverIB             bool   `env:"ENABLE_IP_OVER_IB"              envDefault:"false"`
 	DefaultLimitedPartition    string `env:"DEFAULT_LIMITED_PARTITION"`
 	EnableIndex0ForPrimaryPkey bool   `env:"ENABLE_INDEX0_FOR_PRIMARY_PKEY" envDefault:"true"`
-	SMTimezone                 string `env:"SM_TIMEZONE"`
+	SMTimezone                 string `env:"SM_TIMEZONE"                    envDefault:"UTC"`
 }
 
 func newUfmPlugin() (*ufmPlugin, error) {

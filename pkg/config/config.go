@@ -63,12 +63,8 @@ func (dc *DaemonConfig) ReadConfig() error {
 		log.Info().Msg("Default limited partition is not set.")
 	}
 
-	// If SM timezone is set - log at startup
-	if dc.SMTimezone != "" {
-		log.Info().Msgf("SM timezone is set to %s.", dc.SMTimezone)
-	} else {
-		log.Info().Msg("SM timezone is not set.")
-	}
+	// Log at startup
+	log.Info().Msgf("SM timezone is set to %s.", dc.SMTimezone)
 
 	return err
 }
